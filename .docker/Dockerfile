@@ -50,8 +50,14 @@ RUN pip3 install --no-cache-dir .[test,webservice,watcher]
 
 FROM base
 
+# For Tesseract 5
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  software-properties-common gpg-agent
+RUN add-apt-repository -y ppa:alex-p/tesseract-ocr-devel
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ghostscript \
+  jbig2dec \
   img2pdf \
   libsm6 libxext6 libxrender-dev \
   pngquant \
@@ -74,7 +80,7 @@ COPY --from=builder /app/misc/webservice.py /app/
 COPY --from=builder /app/misc/watcher.py /app/
 
 # Copy minimal project files to get the test suite.
-COPY --from=builder /app/setup.cfg /app/setup.py /app/README.md /app/
+COPY --from=builder /app/pyproject.toml /app/README.md /app/
 COPY --from=builder /app/tests /app/tests
 
 ENTRYPOINT ["/usr/local/bin/ocrmypdf"]

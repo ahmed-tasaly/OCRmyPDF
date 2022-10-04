@@ -22,8 +22,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-18.04
-            python: "3.7"
           - os: ubuntu-20.04
             python: "3.8"
           - os: ubuntu-20.04
@@ -33,7 +31,13 @@ jobs:
           - os: ubuntu-latest
             python: "3.9"
           - os: ubuntu-latest
-            python: "pypy-3.8"
+            python: "3.10"
+          - os: ubuntu-latest
+            python: "3.11.0-rc.2 - 3.11.0"
+          # - os: ubuntu-latest
+          #   python: "pypy3.8"
+          #- os: ubuntu-latest
+          #  python: "pypy3.9"
           - os: ubuntu-latest
             python: "3.9"
             tesseract5: true
@@ -75,12 +79,6 @@ jobs:
             unpaper \
             zlib1g
 
-      - name: Install Ubuntu 18.04 packages
-        if: matrix.os == 'ubuntu-18.04'
-        run: |
-          sudo apt-get install -y --no-install-recommends \
-            libexempi3
-
       - name: Install Ubuntu 20.04 packages
         if: matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
         run: |
@@ -98,7 +96,7 @@ jobs:
       - name: Install Python packages
         run: |
           python -m pip install --upgrade pip wheel
-          python -m pip install .[test]
+          python -m pip install --prefer-binary .[test]
 
       - name: Report versions
         run: |
@@ -124,7 +122,7 @@ jobs:
     strategy:
       matrix:
         os: [macos-latest]
-        python: ["3.9", "3.10"]
+        python: ["3.9", "3.10"] # 2022-09-20: pikepdf/lxml not available for cp311
 
     env:
       OS: ${{ matrix.os }}
@@ -154,7 +152,7 @@ jobs:
       - name: Install Python packages
         run: |
           python -m pip install --upgrade pip wheel
-          python -m pip install .[test]
+          python -m pip install --prefer-binary .[test]
 
       - name: Report versions
         run: |
@@ -179,7 +177,7 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest]
-        python: ["3.9", "3.10"]
+        python: ["3.9", "3.10"] # 2022-09-20: pikepdf/lxml not available for cp311
 
     env:
       OS: ${{ matrix.os }}
@@ -203,7 +201,7 @@ jobs:
       - name: Install Python packages
         run: |
           python -m pip install --upgrade pip wheel
-          python -m pip install .[test]
+          python -m pip install --prefer-binary .[test]
 
       - name: Test
         run: |
@@ -230,9 +228,8 @@ jobs:
 
       - name: Make wheels and sdist
         run: |
-          python -m pip install --upgrade pip wheel
-          python setup.py sdist
-          python setup.py bdist_wheel
+          python -m pip install --upgrade pip wheel build
+          python -m build --sdist --wheel
 
       - uses: actions/upload-artifact@v3
         with:

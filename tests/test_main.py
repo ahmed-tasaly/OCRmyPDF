@@ -15,7 +15,7 @@ import pytest
 from PIL import Image
 
 import ocrmypdf
-from ocrmypdf._exec import ghostscript, tesseract
+from ocrmypdf._exec import tesseract
 from ocrmypdf.exceptions import ExitCode, MissingDependencyError
 from ocrmypdf.pdfa import file_claims_pdfa
 from ocrmypdf.pdfinfo import Colorspace, Encoding, PdfInfo
@@ -178,7 +178,8 @@ def test_maximum_options(renderer, output_type, multipage, outpdf):
 
 
 @pytest.mark.skipif(
-    tesseract.version() >= '5', reason="tess 5 tries harder to find its files"
+    tesseract.TesseractVersion(tesseract.version()) >= tesseract.TesseractVersion('5'),
+    reason="tess 5 tries harder to find its files",
 )
 def test_tesseract_missing_tessdata(monkeypatch, resources, no_outpdf, tmpdir):
     monkeypatch.setenv("TESSDATA_PREFIX", os.fspath(tmpdir))
@@ -545,7 +546,6 @@ def test_tesseract_config_invalid(renderer, resources, invalid_tess_config, outp
     assert p.returncode == ExitCode.invalid_config
 
 
-@pytest.mark.skipif(not tesseract.has_user_words(), reason='not functional until 4.1.0')
 def test_user_words_ocr(resources, outdir):
     # Does not actually test if --user-words causes output to differ
     word_list = outdir / 'wordlist.txt'
@@ -722,11 +722,9 @@ def test_compression_changed(ocrmypdf_exec, resources, image, compression, outpd
     if compression == "jpeg":
         assert pdfimage.enc == Encoding.jpeg
     else:
-        if ghostscript.jpeg_passthrough_available():
-            # Ghostscript 9.23 adds JPEG passthrough, which allows a JPEG to be
-            # copied without transcoding - so report
-            if image.endswith('jpg'):
-                assert pdfimage.enc == Encoding.jpeg
+        if image.endswith('jpg'):
+            # Ghostscript JPEG passthrough - no issue
+            assert pdfimage.enc == Encoding.jpeg
         else:
             assert pdfimage.enc not in (Encoding.jpeg, Encoding.jpeg2000)
 
@@ -780,9 +778,6 @@ def test_sidecar_nonempty(resources, outpdf):
 
 @pytest.mark.parametrize('pdfa_level', ['1', '2', '3'])
 def test_pdfa_n(pdfa_level, resources, outpdf):
-    if pdfa_level == '3' and ghostscript.version() < '9.19':
-        pytest.xfail(reason='Ghostscript >= 9.19 required')
-
     check_ocrmypdf(
         resources / 'ccitt.pdf',
         outpdf,

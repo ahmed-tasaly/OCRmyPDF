@@ -1,9 +1,7 @@
-# SPDX-FileCopyrightText: 2022 James R. Barlow
-# SPDX-License-Identifier: CC-BY-SA-4.0
 ---
-name: Problem with a specific input file
+name: Problem with specific file
 about: Something went wrong while trying to OCR a specific file
-title: ''
+title: "[BUG]"
 labels: ''
 assignees: ''
 

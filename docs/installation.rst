@@ -21,7 +21,7 @@ These platforms have one-liner installs:
 +-------------------------------+-----------------------------------------+
 | Windows Subsystem for Linux   | ``apt install ocrmypdf``                |
 +-------------------------------+-----------------------------------------+
-| Fedora                        | ``dnf install ocrmypdf``                |
+| Fedora                        | ``dnf install ocrmypdf tesseract-osd``  |
 +-------------------------------+-----------------------------------------+
 | macOS                         | ``brew install ocrmypdf``               |
 +-------------------------------+-----------------------------------------+
@@ -121,7 +121,7 @@ Users of Fedora 29 or later may simply
 
 .. code-block:: bash
 
-    dnf install ocrmypdf
+    dnf install ocrmypdf tesseract-osd
 
 For full details on version availability, check the `Fedora Package
 Tracker <https://apps.fedoraproject.org/packages/ocrmypdf>`__.
@@ -293,7 +293,7 @@ Homebrew
 
 .. image:: https://img.shields.io/homebrew/v/ocrmypdf.svg
     :alt: homebrew
-    :target: http://brewformulas.org/Ocrmypdf
+    :target: https://formulae.brew.sh/formula/ocrmypdf
 
 OCRmyPDF is now a standard `Homebrew <https://brew.sh>`__ formula. To
 install on macOS:

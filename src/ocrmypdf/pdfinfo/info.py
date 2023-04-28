@@ -164,7 +164,7 @@ class TextMarker:
 
 
 def _normalize_stack(graphobjs):
-    """Convert runs of qQ's in the stack into single graphobjs"""
+    """Convert runs of qQ's in the stack into single graphobjs."""
     for operands, operator in graphobjs:
         operator = str(operator)
         if re.match(r'Q*q+$', operator):  # Zero or more Q, one or more q
@@ -200,7 +200,6 @@ def _interpret_contents(contentstream: Object, initial_shorthand=UNIT_SQUARE):
     undefined in the spec, but we just pretend nothing happened and leave the
     CTM unchanged.
     """
-
     stack = []
     ctm = PdfMatrix(initial_shorthand)
     xobject_settings: list[XobjectSettings] = []
@@ -307,7 +306,6 @@ def _get_dpi(ctm_shorthand, image_size) -> Resolution:
     /MediaBox.
 
     """
-
     a, b, c, d, _, _ = ctm_shorthand  # pylint: disable=invalid-name
 
     # Calculate the width and height of the image in PDF units
@@ -324,7 +322,12 @@ def _get_dpi(ctm_shorthand, image_size) -> Resolution:
 
 
 class ImageInfo:
-    """Information about an image found in a PDF."""
+    """Information about an image found in a PDF.
+
+    This gathers information from pikepdf and pdfminer.six, and is pickle-able
+    so that it can be passed to a worker process, unlike objects from those
+    libraries.
+    """
 
     DPI_PREC = Decimal('1.000')
 
@@ -339,6 +342,7 @@ class ImageInfo:
         inline: PdfInlineImage | None = None,
         shorthand=None,
     ):
+        """Initialize an ImageInfo."""
         self._name = str(name)
         self._shorthand = shorthand
 
@@ -405,45 +409,62 @@ class ImageInfo:
 
     @property
     def name(self):
+        """Name of the image as it appears in the PDF."""
         return self._name
 
     @property
     def type_(self):
+        """Type of image, either 'image' or 'stencil'."""
         return self._type
 
     @property
     def width(self):
+        """Width of the image in pixels."""
         return self._width
 
     @property
     def height(self):
+        """Height of the image in pixels."""
         return self._height
 
     @property
     def bpc(self):
+        """Bits per component."""
         return self._bpc
 
     @property
     def color(self):
+        """Colorspace of the image."""
         return self._color if self._color is not None else '?'
 
     @property
     def comp(self):
+        """Number of components/channels in the image."""
         return self._comp if self._comp is not None else '?'
 
     @property
     def enc(self):
+        """Encoding of the image."""
         return self._enc if self._enc is not None else 'image'
 
     @property
-    def renderable(self):
+    def renderable(self) -> bool:
+        """Whether the image is renderable.
+
+        Some PDFs in the wild have invalid images that are not renderable.
+        """
         return self.dpi.is_finite and self.width >= 0 and self.height >= 0
 
     @property
     def dpi(self):
+        """Dots per inch of the image.
+
+        Calculated based on where and how the image is drawn in the PDF.
+        """
         return _get_dpi(self._shorthand, (self._width, self._height))
 
     def __repr__(self):
+        """Return a string representation of the image."""
         return (
             f"<ImageInfo '{self.name}' {self.type_} {self.width}x{self.height} "
             f"{self.color} {self.comp} {self.bpc} {self.enc} {self.dpi}>"
@@ -451,8 +472,7 @@ class ImageInfo:
 
 
 def _find_inline_images(contentsinfo: ContentsInfo) -> Iterator[ImageInfo]:
-    "Find inline images in the contentstream"
-
+    """Find inline images in the contentstream."""
     for n, inline in enumerate(contentsinfo.inline_images):
         yield ImageInfo(
             name=f'inline-{n:02d}', shorthand=inline.shorthand, inline=inline.iimage
@@ -460,7 +480,7 @@ def _find_inline_images(contentsinfo: ContentsInfo) -> Iterator[ImageInfo]:
 
 
 def _image_xobjects(container) -> Iterator[tuple[Object, str]]:
-    """Search for all XObject-based images in the container
+    """Search for all XObject-based images in the container.
 
     Usually the container is a page, but it could also be a Form XObject
     that contains images. Filter out the Form XObjects which are dealt with
@@ -471,7 +491,6 @@ def _image_xobjects(container) -> Iterator[tuple[Object, str]]:
     since the object does not know its own name.
 
     """
-
     if '/Resources' not in container:
         return
     resources = container['/Resources']
@@ -488,14 +507,13 @@ def _image_xobjects(container) -> Iterator[tuple[Object, str]]:
 def _find_regular_images(
     container: Object, contentsinfo: ContentsInfo
 ) -> Iterator[ImageInfo]:
-    """Find images stored in the container's /Resources /XObject
+    """Find images stored in the container's /Resources /XObject.
 
     Usually the container is a page, but it could also be a Form XObject
     that contains images.
 
     Generates images with their DPI at time of drawing.
     """
-
     for pdfimage, xobj in _image_xobjects(container):
         if xobj not in contentsinfo.name_index:
             continue
@@ -512,7 +530,7 @@ def _find_regular_images(
 
 
 def _find_form_xobject_images(pdf: Pdf, container: Object, contentsinfo: ContentsInfo):
-    """Find any images that are in Form XObjects in the container
+    """Find any images that are in Form XObjects in the container.
 
     The container may be a page, or a parent Form XObject.
 
@@ -525,7 +543,7 @@ def _find_form_xobject_images(pdf: Pdf, container: Object, contentsinfo: Content
     xobjs = resources['/XObject'].as_dict()
     for xobj in xobjs:
         candidate = xobjs[xobj]
-        if candidate['/Subtype'] != '/Form':
+        if candidate is None or candidate['/Subtype'] != '/Form':
             continue
 
         form_xobject = candidate
@@ -546,7 +564,7 @@ def _find_form_xobject_images(pdf: Pdf, container: Object, contentsinfo: Content
 def _process_content_streams(
     *, pdf: Pdf, container: Object, shorthand=None
 ) -> Iterator[VectorMarker | TextMarker | ImageInfo]:
-    """Find all individual instances of images drawn in the container
+    """Find all individual instances of images drawn in the container.
 
     Usually the container is a page, but it may also be a Form XObject.
 
@@ -563,7 +581,6 @@ def _process_content_streams(
     downsampling.
 
     """
-
     if container.get('/Type') == '/Page' and '/Contents' in container:
         initial_shorthand = shorthand or UNIT_SQUARE
     elif container.get('/Type') == '/XObject' and container['/Subtype'] == '/Form':
@@ -595,8 +612,7 @@ def _process_content_streams(
 
 
 def _page_has_text(text_blocks: Iterable[FloatRect], page_width, page_height) -> bool:
-    """Smarter text detection that ignores text in margins"""
-
+    """Smarter text detection that ignores text in margins."""
     pw, ph = float(page_width), float(page_height)  # pylint: disable=invalid-name
 
     margin_ratio = 0.125
@@ -608,10 +624,11 @@ def _page_has_text(text_blocks: Iterable[FloatRect], page_width, page_height) ->
     )
 
     def rects_intersect(a: FloatRect, b: FloatRect) -> bool:
-        """
+        """Check if two 4-tuple rects intersect.
+
         Where (a,b) are 4-tuple rects (left-0, top-1, right-2, bottom-3)
         https://stackoverflow.com/questions/306316/determine-if-two-rectangles-overlap-each-other
-        Formula assumes all boxes are in first quadrant
+        Formula assumes all boxes are in first quadrant.
         """
         return a[0] < b[2] and a[2] > b[0] and a[1] > b[3] and a[3] < b[1]
 
@@ -624,7 +641,7 @@ def _page_has_text(text_blocks: Iterable[FloatRect], page_width, page_height) ->
 
 
 def simplify_textboxes(miner, textbox_getter) -> Iterator[TextboxInfo]:
-    """Extract only limited content from text boxes
+    """Extract only limited content from text boxes.
 
     We do this to save memory and ensure that our objects are pickleable.
     """
@@ -740,6 +757,7 @@ class PageInfo:
         check_pages: Container[int],
         detailed_analysis: bool = False,
     ):
+        """Initialize a PageInfo object."""
         self._pageno = pageno
         self._infile = infile
         self._detailed_analysis = detailed_analysis
@@ -816,40 +834,56 @@ class PageInfo:
 
     @property
     def pageno(self) -> int:
+        """Return page number (0-based)."""
         return self._pageno
 
     @property
     def has_text(self) -> bool:
+        """Return True if page has text, False if not or unknown."""
         return bool(self._has_text)
 
     @property
     def has_corrupt_text(self) -> bool:
+        """Return True if page has corrupt text, False if not or unknown."""
         if not self._detailed_analysis:
             raise NotImplementedError('Did not do detailed analysis')
         return any(tbox.is_corrupt for tbox in self._textboxes)
 
     @property
     def has_vector(self) -> bool:
+        """Return True if page has vector graphics, False if not or unknown.
+
+        Vector graphics are sometimes used to draw fonts, so it may not be
+        obvious on visual inspection whether a page has text or not.
+        """
         return bool(self._has_vector)
 
     @property
     def width_inches(self) -> Decimal:
+        """Return width of page in inches."""
         return self._width_inches
 
     @property
     def height_inches(self) -> Decimal:
+        """Return height of page in inches."""
         return self._height_inches
 
     @property
     def width_pixels(self) -> int:
+        """Return width of page in pixels."""
         return int(round(float(self.width_inches) * self.dpi.x))
 
     @property
     def height_pixels(self) -> int:
+        """Return height of page in pixels."""
         return int(round(float(self.height_inches) * self.dpi.y))
 
     @property
     def rotation(self) -> int:
+        """Return rotation of page in degrees.
+
+        Will only be a multiple of 90.
+        """
         return self._rotate
 
     @rotation.setter
@@ -860,10 +894,13 @@ class PageInfo:
             raise ValueError("rotation must be a cardinal angle")
 
     @property
-    def images(self):
+    def images(self) -> list[ImageInfo]:
+        """Return images."""
         return self._images
 
     def get_textareas(self, visible: bool | None = None, corrupt: bool | None = None):
+        """Return textareas bounding boxes in PDF coordinates on the page."""
+
         def predicate(obj, want_visible, want_corrupt):
             result = True
             if want_visible is not None:
@@ -883,22 +920,26 @@ class PageInfo:
 
     @property
     def dpi(self) -> Resolution:
+        """Return DPI needed to render all images on the page."""
         if self._dpi is None:
             return Resolution(0.0, 0.0)
         return self._dpi
 
     @property
     def userunit(self) -> Decimal:
+        """Return user unit of page."""
         return self._userunit
 
     @property
     def min_version(self) -> str:
+        """Return minimum PDF version needed to render this page."""
         if self.userunit is not None:
             return '1.6'
         else:
             return '1.5'
 
     def __repr__(self):
+        """Return string representation."""
         return (
             f'<PageInfo '
             f'pageno={self.pageno} {self.width_inches}"x{self.height_inches}" '
@@ -910,7 +951,7 @@ DEFAULT_EXECUTOR = SerialExecutor()
 
 
 class PdfInfo:
-    """Get summary information about a PDF"""
+    """Get summary information about a PDF."""
 
     def __init__(
         self,
@@ -918,10 +959,11 @@ class PdfInfo:
         *,
         detailed_analysis: bool = False,
         progbar: bool = False,
-        max_workers: int = None,
+        max_workers: int | None = None,
         check_pages=None,
         executor: Executor = DEFAULT_EXECUTOR,
     ):
+        """Initialize."""
         self._infile = infile
         if check_pages is None:
             check_pages = range(0, 1_000_000_000)
@@ -948,42 +990,56 @@ class PdfInfo:
 
     @property
     def pages(self) -> Sequence[PageInfo | None]:
+        """Return list of PageInfo objects, one per page in the PDF."""
         return self._pages
 
     @property
     def min_version(self) -> str:
+        """Return minimum PDF version needed to render this PDF."""
         # The minimum PDF is the maximum version that any particular page needs
         return max(page.min_version for page in self.pages if page)
 
     @property
     def has_userunit(self) -> bool:
+        """Return True if any page has a user unit."""
         return any(page.userunit != 1.0 for page in self.pages if page)
 
     @property
     def has_acroform(self) -> bool:
+        """Return True if any page has an AcroForm."""
         return self._has_acroform
 
     @property
     def filename(self) -> str | Path:
+        """Return filename of PDF."""
         if not isinstance(self._infile, (str, Path)):
             raise NotImplementedError("can't get filename from stream")
         return self._infile
 
     @property
     def needs_rendering(self) -> bool:
+        """Return True if PDF contains XFA forms.
+
+        XFA forms are not supported by most standard PDF renderers, so we
+        need to detect and suppress them.
+        """
         return self._needs_rendering
 
     def __getitem__(self, item) -> PageInfo:
+        """Return PageInfo object for page number `item`."""
         return self._pages[item]
 
     def __len__(self):
+        """Return number of pages in PDF."""
         return len(self._pages)
 
     def __repr__(self):
+        """Return string representation."""
         return f"<PdfInfo('...'), page count={len(self)}>"
 
 
 def main():
+    """Run as a script."""
     import argparse  # pylint: disable=import-outside-toplevel
     from pprint import pprint  # pylint: disable=import-outside-toplevel
 

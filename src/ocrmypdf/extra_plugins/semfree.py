@@ -54,6 +54,7 @@ def split_every(n: int, iterable: Iterable) -> Iterator:
 
 
 def process_sigbus(*args):
+    """Handle SIGBUS signal at the worker level."""
     raise InputFileError("A worker process lost access to an input file")
 
 
@@ -61,20 +62,21 @@ class ConnectionLogHandler(logging.handlers.QueueHandler):
     """Handler used by child processes to forward log messages to parent."""
 
     def __init__(self, conn: Connection) -> None:
+        """Initialize the handler."""
         # sets the parent's queue to None - parent only touches queue
         # in enqueue() which we override
         super().__init__(None)  # type: ignore
         self.conn = conn
 
     def enqueue(self, record):
+        """Enqueue a log message."""
         self.conn.send(('log', record))
 
 
 def process_loop(
     conn: Connection, user_init: Callable[[], None], loglevel, task, task_args
 ):
-    """Initialize a process pool worker"""
-
+    """Initialize a process pool worker."""
     # Install SIGBUS handler (so our parent process can abort somewhat gracefully)
     with suppress(AttributeError):  # Windows and Cygwin do not have SIGBUS
         # Windows and Cygwin do not have pthread_sigmask or SIGBUS
@@ -166,8 +168,7 @@ class LambdaExecutor(Executor):
                         continue
 
                     if msg_type == MessageType.result:
-                        if task_finished:
-                            task_finished(msg, pbar)
+                        task_finished(msg, pbar)
                     elif msg_type == 'log':
                         record = msg
                         logger = logging.getLogger(record.name)
@@ -185,14 +186,20 @@ class LambdaExecutor(Executor):
 
 @hookimpl
 def get_executor(progressbar_class):
+    """Return a LambdaExecutor instance."""
     return LambdaExecutor(pbar_class=progressbar_class)
 
 
 @hookimpl
 def get_logging_console():
+    """Return a logging.StreamHandler instance."""
     return logging.StreamHandler()
 
 
 @hookimpl
 def get_progressbar_class():
+    """Return a NullProgressBar instance.
+
+    This executor cannot use a progress bar.
+    """
     return NullProgressBar

@@ -8,7 +8,6 @@ import logging
 
 from ocrmypdf import hookimpl
 from ocrmypdf._exec import ghostscript
-from ocrmypdf._validation import HOCR_OK_LANGS
 from ocrmypdf.exceptions import MissingDependencyError
 from ocrmypdf.subprocess import check_external_program
 
@@ -17,6 +16,7 @@ log = logging.getLogger(__name__)
 
 @hookimpl
 def check_options(options):
+    """Check that the options are valid for this plugin."""
     check_external_program(
         program='gs',
         package='ghostscript',
@@ -46,6 +46,7 @@ def rasterize_pdf_page(
     rotation,
     filter_vector,
 ):
+    """Rasterize a single page of a PDF file using Ghostscript."""
     ghostscript.rasterize_pdf(
         input_file,
         output_file,
@@ -69,6 +70,7 @@ def generate_pdfa(
     pdfa_part,
     progressbar_class,
 ):
+    """Generate a PDF/A from the list of PDF pages and PDF/A metadata."""
     ghostscript.generate_pdfa(
         pdf_pages=[*pdf_pages, pdfmark],
         output_file=output_file,

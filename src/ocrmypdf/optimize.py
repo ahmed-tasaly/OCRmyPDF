@@ -53,20 +53,24 @@ class XrefExt(NamedTuple):
 
 
 def img_name(root: Path, xref: Xref, ext: str) -> Path:
+    """Return the name of an image file for a given xref and extension."""
     return root / f'{xref:08d}{ext}'
 
 
 def png_name(root: Path, xref: Xref) -> Path:
+    """Return the name of a PNG file for a given xref."""
     return img_name(root, xref, '.png')
 
 
 def jpg_name(root: Path, xref: Xref) -> Path:
+    """Return the name of a JPEG file for a given xref."""
     return img_name(root, xref, '.jpg')
 
 
 def extract_image_filter(
     pike: Pdf, root: Path, image: Stream, xref: Xref
 ) -> tuple[PdfImage, tuple[Name, Object]] | None:
+    """Determine if an image is extractable."""
     del pike  # unused args
     del root
 
@@ -124,6 +128,7 @@ def extract_image_filter(
 def extract_image_jbig2(
     *, pike: Pdf, root: Path, image: Stream, xref: Xref, options
 ) -> XrefExt | None:
+    """Extract an image, saving it as a JBIG2 file."""
     del options  # unused arg
 
     result = extract_image_filter(pike, root, image, xref)
@@ -165,6 +170,7 @@ def extract_image_jbig2(
 def extract_image_generic(
     *, pike: Pdf, root: Path, image: Stream, xref: Xref, options
 ) -> XrefExt | None:
+    """Generic image extraction."""
     result = extract_image_filter(pike, root, image, xref)
     if result is None:
         return None
@@ -230,7 +236,7 @@ def extract_images(
     options,
     extract_fn: Callable[..., XrefExt | None],
 ) -> Iterator[tuple[int, XrefExt]]:
-    """Extract image using extract_fn
+    """Extract image using extract_fn.
 
     Enumerate images on each page, lookup their xref/ID number in the PDF.
     Exclude images that are soft masks (i.e. alpha transparency related).
@@ -244,7 +250,6 @@ def extract_images(
     it does a tuple should be returned: (xref, ext) where .ext is the file
     extension. extract_fn must also extract the file it finds interesting.
     """
-
     include_xrefs: MutableSet[Xref] = set()
     exclude_xrefs: MutableSet[Xref] = set()
     pageno_for_xref = {}
@@ -289,8 +294,7 @@ def extract_images(
 def extract_images_generic(
     pike: Pdf, root: Path, options
 ) -> tuple[list[Xref], list[Xref]]:
-    """Extract any >=2bpp image we think we can improve"""
-
+    """Extract any >=2bpp image we think we can improve."""
     jpegs = []
     pngs = []
     for _, xref_ext in extract_images(pike, root, options, extract_image_generic):
@@ -304,8 +308,7 @@ def extract_images_generic(
 
 
 def extract_images_jbig2(pike: Pdf, root: Path, options) -> dict[int, list[XrefExt]]:
-    """Extract any bitonal image that we think we can improve as JBIG2"""
-
+    """Extract any bitonal image that we think we can improve as JBIG2."""
     jbig2_groups = defaultdict(list)
     for pageno, xref_ext in extract_images(pike, root, options, extract_image_jbig2):
         group = pageno // options.jbig2_page_group_size
@@ -318,7 +321,7 @@ def extract_images_jbig2(pike: Pdf, root: Path, options) -> dict[int, list[XrefE
 def _produce_jbig2_images(
     jbig2_groups: dict[int, list[XrefExt]], root: Path, options, executor: Executor
 ) -> None:
-    """Produce JBIG2 images from their groups"""
+    """Produce JBIG2 images from their groups."""
 
     def jbig2_group_args(root: Path, groups: dict[int, list[XrefExt]]):
         for group, xref_exts in groups.items():
@@ -423,6 +426,8 @@ def _optimize_jpeg(args: tuple[Xref, Path, Path, int]) -> tuple[Xref, Path | Non
 def transcode_jpegs(
     pike: Pdf, jpegs: Sequence[Xref], root: Path, options, executor: Executor
 ) -> None:
+    """Optimize JPEGs according to optimization settings."""
+
     def jpeg_args() -> Iterator[tuple[Xref, Path, Path, int]]:
         for xref in jpegs:
             in_jpg = jpg_name(root, xref)
@@ -481,6 +486,12 @@ def _deflate_jpeg(args: tuple[Pdf, threading.Lock, Xref, int]) -> tuple[Xref, by
 
 
 def deflate_jpegs(pike: Pdf, root: Path, options, executor: Executor) -> None:
+    """Apply FlateDecode to JPEGs.
+
+    This is a lossless compression method that is supported by all PDF viewers,
+    and generally results in a smaller file size compared to straight DCTDecode
+    images.
+    """
     jpegs = []
     for _pageno, xref_ext in extract_images(pike, root, options, _find_deflatable_jpeg):
         xref = xref_ext.xref
@@ -568,6 +579,7 @@ def transcode_pngs(
     options,
     executor,
 ) -> None:
+    """Apply lossy transcoding to PNGs."""
     modified: MutableSet[Xref] = set()
     if options.optimize >= 2:
         png_quality = (
@@ -614,6 +626,7 @@ def optimize(
     save_settings,
     executor: Executor = DEFAULT_EXECUTOR,
 ) -> Path:
+    """Optimize images in a PDF file."""
     options = context.options
     if options.optimize == 0:
         safe_symlink(input_file, output_file)
@@ -670,11 +683,12 @@ def optimize(
 
 
 def main(infile, outfile, level, jobs=1):
+    """Entry point for direct optimization of a file."""
     from shutil import copy  # pylint: disable=import-outside-toplevel
     from tempfile import TemporaryDirectory  # pylint: disable=import-outside-toplevel
 
     class OptimizeOptions:
-        """Emulate ocrmypdf's options"""
+        """Emulate ocrmypdf's options."""
 
         def __init__(
             self, input_file, jobs, optimize_, jpeg_quality, png_quality, jb2lossy

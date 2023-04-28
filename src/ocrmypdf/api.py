@@ -86,7 +86,6 @@ def configure_logging(
     Returns:
         The toplevel logger for ocrmypdf (or the root logger, if we are managing it).
     """
-
     prefix = '' if manage_root_logger else 'ocrmypdf'
 
     log = logging.getLogger(prefix)
@@ -143,6 +142,7 @@ def configure_logging(
 def create_options(
     *, input_file: PathOrIO, output_file: PathOrIO, parser: ArgumentParser, **kwargs
 ):
+    """Construct an options object from the input/output files and keyword arguments."""
     cmdline = []
     deferred = []
 
@@ -203,59 +203,72 @@ def create_options(
     return options
 
 
-def ocr(  # pylint: disable=unused-argument
+def ocr(  # noqa: ruff: disable=D417
     input_file: PathOrIO,
     output_file: PathOrIO,
     *,
-    language: Iterable[str] = None,
-    image_dpi: int = None,
-    output_type=None,
+    language: Iterable[str] | None = None,
+    image_dpi: int | None = None,
+    output_type: str | None = None,
     sidecar: StrPath | None = None,
-    jobs: int = None,
-    use_threads: bool = None,
-    title: str = None,
-    author: str = None,
-    subject: str = None,
-    keywords: str = None,
-    rotate_pages: bool = None,
-    remove_background: bool = None,
-    deskew: bool = None,
-    clean: bool = None,
-    clean_final: bool = None,
-    unpaper_args: str = None,
-    oversample: int = None,
-    remove_vectors: bool = None,
-    force_ocr: bool = None,
-    skip_text: bool = None,
-    redo_ocr: bool = None,
-    skip_big: float = None,
-    optimize: int = None,
-    jpg_quality: int = None,
-    png_quality: int = None,
-    jbig2_lossy: bool = None,
-    jbig2_page_group_size: int = None,
-    pages: str = None,
-    max_image_mpixels: float = None,
-    tesseract_config: Iterable[str] = None,
-    tesseract_pagesegmode: int = None,
-    tesseract_oem: int = None,
-    tesseract_thresholding: int = None,
-    pdf_renderer=None,
-    tesseract_timeout: float = None,
-    rotate_pages_threshold: float = None,
-    pdfa_image_compression=None,
-    user_words: os.PathLike = None,
-    user_patterns: os.PathLike = None,
-    fast_web_view: float = None,
-    plugins: Iterable[StrPath] = None,
+    jobs: int | None = None,
+    use_threads: bool | None = None,
+    title: str | None = None,
+    author: str | None = None,
+    subject: str | None = None,
+    keywords: str | None = None,
+    rotate_pages: bool | None = None,
+    remove_background: bool | None = None,
+    deskew: bool | None = None,
+    clean: bool | None = None,
+    clean_final: bool | None = None,
+    unpaper_args: str | None = None,
+    oversample: int | None = None,
+    remove_vectors: bool | None = None,
+    force_ocr: bool | None = None,
+    skip_text: bool | None = None,
+    redo_ocr: bool | None = None,
+    skip_big: float | None = None,
+    optimize: int | None = None,
+    jpg_quality: int | None = None,
+    png_quality: int | None = None,
+    jbig2_lossy: bool | None = None,
+    jbig2_page_group_size: int | None = None,
+    pages: str | None = None,
+    max_image_mpixels: float | None = None,
+    tesseract_config: Iterable[str] | None = None,
+    tesseract_pagesegmode: int | None = None,
+    tesseract_oem: int | None = None,
+    tesseract_thresholding: int | None = None,
+    pdf_renderer: str | None = None,
+    tesseract_timeout: float | None = None,
+    tesseract_non_ocr_timeout: float | None = None,
+    rotate_pages_threshold: float | None = None,
+    pdfa_image_compression: str | None = None,
+    user_words: os.PathLike | None = None,
+    user_patterns: os.PathLike | None = None,
+    fast_web_view: float | None = None,
+    plugins: Iterable[StrPath] | None = None,
     plugin_manager=None,
-    keep_temporary_files: bool = None,
-    progress_bar: bool = None,
+    keep_temporary_files: bool | None = None,
+    progress_bar: bool | None = None,
     **kwargs,
 ):
     """Run OCRmyPDF on one PDF or image.
 
     For most arguments, see documentation for the equivalent command line parameter.
+
+    This API takes a threading lock, because OCRmyPDF uses global state in particular
+    for the plugin system. The jobs parameter will be used to create a pool of
+    worker threads or processes at different times, subject to change. A Python
+    process can only run one OCRmyPDF task at a time.
+
+    To run parallelize instances OCRmyPDF, use separate Python processes to scale
+    horizontally. Generally speaking you should set jobs=sqrt(cpu_count) and run
+    sqrt(cpu_count) processes as a starting point. If you have files with a high page
+    count, run fewer processes and more jobs per process. If you have a lot of short
+    files, run more processes and fewer jobs per process.
+
     A few specific arguments are discussed here:
 
     Args:
@@ -277,6 +290,7 @@ def ocr(  # pylint: disable=unused-argument
             When a stream is used as output, whether via a writable object or
             ``"-"``, some final validation steps are not performed (we do not read
             back the stream after it is written).
+
     Raises:
         ocrmypdf.MissingDependencyError: If a required dependency program is missing or
             was not found on PATH.

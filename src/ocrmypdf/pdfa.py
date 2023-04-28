@@ -1,9 +1,7 @@
 # SPDX-FileCopyrightText: 2022 James R. Barlow
 # SPDX-License-Identifier: MPL-2.0
 
-"""
-Utilities for PDF/A production and confirmation with Ghostspcript.
-"""
+"""Utilities for PDF/A production and confirmation with Ghostspcript."""
 
 from __future__ import annotations
 
@@ -25,8 +23,8 @@ def _postscript_objdef(
     alias: str,
     dictionary: dict[str, str],
     *,
-    stream_name: str = None,
-    stream_data: bytes = None,
+    stream_name: str | None = None,
+    stream_data: bytes | None = None,
 ) -> Iterator[str]:
     assert (stream_name is None) == (stream_data is None)
 
@@ -75,7 +73,7 @@ def _make_postscript(icc_name: str, icc_data: bytes, colors: int) -> Iterator[st
 
 
 def generate_pdfa_ps(target_filename: Path, icc: str = 'sRGB'):
-    """Create a Postscript PDFMARK file for Ghostscript PDF/A conversion
+    """Create a Postscript PDFMARK file for Ghostscript PDF/A conversion.
 
     pdfmark is an extension to the Postscript language that describes some PDF
     features like bookmarks and annotations. It was originally specified Adobe
@@ -84,7 +82,7 @@ def generate_pdfa_ps(target_filename: Path, icc: str = 'sRGB'):
     Ghostscript uses pdfmark for PDF to PDF/A conversion as well. To use Ghostscript
     to create a PDF/A, we need to create a pdfmark file with the necessary metadata.
 
-    This function takes care of the many version-specific bugs and pecularities in
+    This function takes care of the many version-specific bugs and peculiarities in
     Ghostscript's handling of pdfmark.
 
     The only information we put in specifies that we want the file to be a
@@ -118,7 +116,6 @@ def file_claims_pdfa(filename: Path):
     This only checks if the XMP metadata contains a PDF/A marker. It does not
     do full PDF/A validation.
     """
-
     with pikepdf.open(filename) as pdf:
         pdfmeta = pdf.open_metadata()
         if not pdfmeta.pdfa_status:

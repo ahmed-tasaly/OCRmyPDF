@@ -51,8 +51,7 @@ class Executor(ABC):
         task_arguments: Iterable | None = None,
         task_finished: Callable | None = None,
     ) -> None:
-        """
-        Set up parallel execution and progress reporting.
+        """Set up parallel execution and progress reporting.
 
         Args:
             use_threads: If ``False``, the workload is the sort that will benefit from
@@ -60,7 +59,7 @@ class Executor(ABC):
                 heavily, and parallelizing it with threads is not expected to be
                 performant).
             max_workers: The maximum number of workers that should be run.
-            tdqm_kwargs: Arguments to set up the progress bar.
+            tqdm_kwargs: Arguments to set up the progress bar.
             worker_initializer: Called when a worker is initialized, in the worker's
                 execution context. If the child workers are processes, it must be
                 possible to marshall/pickle the worker initializer.
@@ -73,7 +72,6 @@ class Executor(ABC):
                 task. This runs in the parent's context, but the parameters must be
                 marshallable to the worker.
         """
-
         if not task_arguments:
             return  # Nothing to do!
         if not worker_initializer:

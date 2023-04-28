@@ -32,7 +32,7 @@ else:
         spec=['HKEYType', 'EnumKey', 'EnumValue', 'HKEY_LOCAL_MACHINE', 'OpenKey']
     )
     # mypy does not understand winreg.HKeyType where winreg is a Mock (fair enough!)
-    HKEYType: TypeAlias = Any
+    HKEYType: TypeAlias = Any  # type: ignore
 
 
 log = logging.getLogger(__name__)
@@ -169,8 +169,7 @@ SHIMS = [
 
 
 def fix_windows_args(program: str, args, env):
-    """Adjust our desired program and command line arguments for use on Windows"""
-
+    """Adjust our desired program and command line arguments for use on Windows."""
     # If we are running a .py on Windows, ensure we call it with this Python
     # (to support test suite shims)
     if program.lower().endswith('.py'):
@@ -188,7 +187,7 @@ def fix_windows_args(program: str, args, env):
 
 
 def unique_everseen(iterable: Iterable[T], key: Callable[[T], Tkey]) -> Iterator[T]:
-    "List unique elements, preserving order."
+    """List unique elements, preserving order."""
     # unique_everseen('AAAABBBCCDAABBB') --> A B C D
     # unique_everseen('ABBCcAD', str.lower) --> A B C D
     seen: set[Tkey] = set()

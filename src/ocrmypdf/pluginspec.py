@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 hookspec = pluggy.HookspecMarker('ocrmypdf')
 
 # pylint: disable=unused-argument
+# mypy: disable-error-code=empty-body
 
 
 @hookspec(firstresult=True)
@@ -43,7 +44,7 @@ def get_logging_console() -> Handler:
 
 
 @hookspec
-def initialize(plugin_manager: pluggy.PluginManager):
+def initialize(plugin_manager: pluggy.PluginManager) -> None:
     """Called when this plugin is first loaded into OCRmyPDF.
 
     The primary intended use of this is for plugins to check compatibility with other
@@ -99,6 +100,8 @@ def check_options(options: Namespace) -> None:
         ocrmypdf.exceptions.ExitCodeException: If options are not acceptable
             and the application should terminate gracefully with an informative
             message and error code.
+
+
     Note:
         This hook will be called from the main process, and may modify global state
         before child worker processes are forked.
@@ -127,6 +130,8 @@ def get_executor(progressbar_class) -> Executor:
     Note:
         This hook will be called from the main process, and may modify global state
         before child worker processes are forked.
+
+
     Note:
         This is a :ref:`firstresult hook<firstresult>`.
     """
@@ -159,7 +164,6 @@ def get_progressbar_class():
     Here is how OCRmyPDF will use the progress bar:
 
     Example:
-
         pbar_class = pm.hook.get_progressbar_class()
         with pbar_class(**tqdm_kwargs) as pbar:
             ...
@@ -181,6 +185,8 @@ def validate(pdfinfo: PdfInfo, options: Namespace) -> None:
         ocrmypdf.exceptions.ExitCodeException: If options or pdfinfo are not acceptable
             and the application should terminate gracefully with an informative
             message and error code.
+
+
     Note:
         This hook will be called from the main process, and may modify global state
         before child worker processes are forked.
@@ -218,6 +224,8 @@ def rasterize_pdf_page(
     Note:
         This hook will be called from child processes. Modifying global state
         will not affect the main process or other child processes.
+
+
     Note:
         This is a :ref:`firstresult hook<firstresult>`.
     """
@@ -228,23 +236,32 @@ def filter_ocr_image(page: PageContext, image: Image.Image) -> Image.Image:
     """Called to filter the image before it is sent to OCR.
 
     This is the image that OCR sees, not what the user sees when they view the
-    PDF. If ``redo_ocr`` is enabled, portions of the image will be masked so
-    they are not shown to OCR. The main use of this hook is expected to be hiding
-    content from OCR.
+    PDF. In certain modes such as ``--redo-ocr``, portions of the image may be
+    masked out to hide them from OCR.
+
+    The main uses of this hook are expected to be hiding content from OCR,
+    conditioning images to OCR better with filters, and adjusting images to
+    match any constraints imposed by the OCR engine.
 
     The input image may be color, grayscale, or monochrome, and the
-    output image may differ. The pixel width and height of the
-    output image must be identical to the input image, or misalignment between
-    the OCR text layer and visual position of the text will occur. Likewise,
-    the output must be a faithful representation of the input, or alignment
-    errors may occurs.
+    output image may differ. For example, if you know that a custom OCR engine
+    does not care about the color of the text, you could convert the image to
+    it to grayscale or monochrome.
 
-    Tesseract OCR only deals with monochrome images, and internally converts
-    non-monochrome images to OCR.
+    Generally speaking, the output image should be a faithful representation of
+    of the input image. You *may* change the pixel width and height of the
+    the input image, but you must not change the aspect ratio, and you must
+    calculate the DPI of the output image based on the new pixel width and
+    height or the OCR text layer will be misaligned with the visual position.
+
+    The built-in Tesseract OCR engine uses this hook itself to downsample
+    very large images to fit its constraints.
 
     Note:
         This hook will be called from child processes. Modifying global state
         will not affect the main process or other child processes.
+
+
     Note:
         This is a :ref:`firstresult hook<firstresult>`.
     """
@@ -269,7 +286,7 @@ def filter_page_image(page: PageContext, image_filename: Path) -> Path:
     to enforce these constraints; it is up to the plugin to do sensible things.
 
     OCRmyPDF will create the PDF page based on the image format used (unless the
-    hook is overriden). If you convert the image to a JPEG, the output page will
+    hook is overridden). If you convert the image to a JPEG, the output page will
     be created as a JPEG, etc. If you change the colorspace, that change will be
     kept. Note that the OCRmyPDF image optimization stage, if enabled, may
     ultimately chose a different format.
@@ -281,6 +298,8 @@ def filter_page_image(page: PageContext, image_filename: Path) -> Path:
     Note:
         This hook will be called from child processes. Modifying global state
         will not affect the main process or other child processes.
+
+
     Note:
         This is a :ref:`firstresult hook<firstresult>`.
     """
@@ -323,6 +342,8 @@ def filter_pdf_page(page: PageContext, image_filename: Path, output_pdf: Path) -
     Note:
         This hook will be called from child processes. Modifying global state
         will not affect the main process or other child processes.
+
+
     Note:
         This is a :ref:`firstresult hook<firstresult>`.
     """
@@ -381,7 +402,8 @@ class OcrEngine(ABC):
         """Returns the set of all languages that are supported by the engine.
 
         Languages are typically given in 3-letter ISO 3166-1 codes, but actually
-        can be any value understood by the OCR engine."""
+        can be any value understood by the OCR engine.
+        """
 
     @staticmethod
     @abstractmethod
@@ -413,6 +435,9 @@ class OcrEngine(ABC):
                 a single page PDF with no visible content of any kind, sized
                 to the dimensions implied by the input_file's width, height
                 and DPI. The image will be grafted onto the input PDF page.
+            output_text: The expected name of a text file containing the
+                recognized text.
+            options: The command line options.
         """
 
 
@@ -474,7 +499,7 @@ def generate_pdfa(
     Note:
         This is a :ref:`firstresult hook<firstresult>`.
 
-    See also:
+    See Also:
         https://github.com/tqdm/tqdm
     """
 

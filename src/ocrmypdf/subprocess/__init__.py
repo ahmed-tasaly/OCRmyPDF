@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2022 James R. Barlow
 # SPDX-License-Identifier: MPL-2.0
-"""Wrappers to manage subprocess calls"""
+"""Wrappers to manage subprocess calls."""
 
 from __future__ import annotations
 
@@ -34,20 +34,25 @@ def run(
     check: bool = False,
     **kwargs,
 ) -> CompletedProcess:
-    """Wrapper around :py:func:`subprocess.run`
+    """Wrapper around :py:func:`subprocess.run`.
 
     The main purpose of this wrapper is to log subprocess output in an orderly
-    fashion that indentifies the responsible subprocess. An additional
+    fashion that identifies the responsible subprocess. An additional
     task is that this function goes to greater lengths to find possible Windows
     locations of our dependencies when they are not on the system PATH.
 
     Arguments should be identical to ``subprocess.run``, except for following:
 
-    Arguments:
+    Args:
+        args: Positional arguments to pass to ``subprocess.run``.
+        env: A set of environment variables. If None, the OS environment is used.
         logs_errors_to_stdout: If True, indicates that the process writes its error
             messages to stdout rather than stderr, so stdout should be logged
             if there is an error. If False, stderr is logged. Could be used with
             stderr=STDOUT, stdout=PIPE for example.
+        check: If True, raise an exception if the process exits with a non-zero
+            status code. If False, the return value will indicate success or failure.
+        kwargs: Additional arguments to pass to ``subprocess.run``.
     """
     args, env, process_log, _text = _fix_process_args(args, env, kwargs)
 
@@ -141,7 +146,7 @@ def get_version(
     regex=r'(\d+(\.\d+)*)',
     env: OsEnviron | None = None,
 ) -> str:
-    """Get the version of the specified program
+    """Get the version of the specified program.
 
     Arguments:
         program: The program to version check.
@@ -323,7 +328,6 @@ def check_external_program(
         version_parser: A class that should be used to parse and compare version
             numbers. Used when version numbers do not follow standard conventions.
     """
-
     try:
         found_version = version_checker()
     except (CalledProcessError, FileNotFoundError) as e:

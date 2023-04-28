@@ -14,7 +14,7 @@ from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from shutil import copyfileobj
-from typing import Any, Iterable, Sequence
+from typing import Any, BinaryIO, Iterable, Sequence, cast
 
 import img2pdf
 import pikepdf
@@ -121,7 +121,6 @@ def _pdf_guess_version(input_file: Path, search_window=1024) -> str:
 
     Returns empty string if not found, indicating file is probably not PDF.
     """
-
     with open(input_file, 'rb') as f:
         signature = f.read(search_window)
     m = re.search(br'%PDF-(\d\.\d)', signature)
@@ -222,7 +221,7 @@ def _vector_page_dpi(pageinfo: PageInfo) -> int:
 
 
 def get_page_dpi(pageinfo: PageInfo, options) -> Resolution:
-    "Get the DPI when nonsquare DPI is tolerable"
+    """Get the DPI when nonsquare DPI is tolerable."""
     xres = max(
         pageinfo.dpi.x or VECTOR_PAGE_DPI,
         options.oversample or 0.0,
@@ -237,7 +236,7 @@ def get_page_dpi(pageinfo: PageInfo, options) -> Resolution:
 
 
 def get_page_square_dpi(pageinfo: PageInfo, options) -> Resolution:
-    "Get the DPI when we require xres == yres, scaled to physical units"
+    """Get the DPI when we require xres == yres, scaled to physical units."""
     xres = pageinfo.dpi.x or 0.0
     yres = pageinfo.dpi.y or 0.0
     userunit = float(pageinfo.userunit) or 1.0
@@ -253,7 +252,7 @@ def get_page_square_dpi(pageinfo: PageInfo, options) -> Resolution:
 
 
 def get_canvas_square_dpi(pageinfo: PageInfo, options) -> Resolution:
-    """Get the DPI when we require xres == yres, in Postscript units"""
+    """Get the DPI when we require xres == yres, in Postscript units."""
     units = float(
         max(
             (pageinfo.dpi.x) or VECTOR_PAGE_DPI,
@@ -315,8 +314,8 @@ def is_ocr_required(page_context: PageContext) -> bool:
             log.warning(
                 "page has no images - "
                 "all vector content will be "
-                f"rasterized at {VECTOR_PAGE_DPI} DPI, losing some resolution and likely "
-                "increasing file size. Use --oversample to adjust the "
+                f"rasterized at {VECTOR_PAGE_DPI} DPI, losing some resolution and "
+                "likely increasing file size. Use --oversample to adjust the "
                 "DPI."
             )
         else:
@@ -358,9 +357,7 @@ def rasterize_preview(input_file: Path, page_context: PageContext) -> Path:
 
 
 def describe_rotation(page_context: PageContext, orient_conf, correction: int) -> str:
-    """
-    Describe the page rotation we are going to perform.
-    """
+    """Describe the page rotation we are going to perform."""
     direction = {0: '⇧', 90: '⇨', 180: '⇩', 270: '⇦'}
     turns = {0: ' ', 90: '⬏', 180: '↻', 270: '⬑'}
 
@@ -401,7 +398,6 @@ def get_orientation_correction(preview: Path, page_context: PageContext) -> int:
     which points it (hopefully) upright. _graft.py takes care of the orienting
     the image and text layers.
     """
-
     orient_conf = page_context.plugin_manager.hook.get_ocr_engine().get_orientation(
         preview, page_context.options
     )
@@ -514,10 +510,11 @@ def preprocess_clean(input_file: Path, page_context: PageContext) -> Path:
 
 
 def create_ocr_image(image: Path, page_context: PageContext) -> Path:
-    """Create the image we send for OCR. May not be the same as the display
-    image depending on preprocessing. This image will never be shown to the
-    user."""
+    """Create the image we send for OCR.
 
+    Might not be the same as the display image depending on preprocessing.
+    This image will never be shown to the user.
+    """
     output_file = page_context.get_path('ocr.png')
     options = page_context.options
     with Image.open(image) as im:
@@ -578,7 +575,9 @@ def ocr_engine_hocr(input_file: Path, page_context: PageContext) -> tuple[Path, 
 
 def should_visible_page_image_use_jpg(pageinfo: PageInfo) -> bool:
     # If all images were JPEGs originally, produce a JPEG as output
-    return pageinfo.images and all(im.enc == Encoding.jpeg for im in pageinfo.images)
+    return bool(pageinfo.images) and all(
+        im.enc == Encoding.jpeg for im in pageinfo.images
+    )
 
 
 def create_visible_page_jpg(image: Path, page_context: PageContext) -> Path:
@@ -895,15 +894,17 @@ def merge_sidecars(txt_files: Iterable[Path | None], context: PdfContext) -> Pat
     return output_file
 
 
-def copy_final(input_file, output_file, _context: PdfContext) -> None:
+def copy_final(
+    input_file: Path, output_file: str | Path | BinaryIO, _context: PdfContext
+) -> None:
     log.debug('%s -> %s', input_file, output_file)
-    with open(input_file, 'rb') as input_stream:
+    with input_file.open('rb') as input_stream:
         if output_file == '-':
-            copyfileobj(input_stream, sys.stdout.buffer)
+            copyfileobj(input_stream, sys.stdout.buffer)  # type: ignore[misc]
             sys.stdout.flush()
         elif hasattr(output_file, 'writable'):
-            output_stream = output_file
-            copyfileobj(input_stream, output_stream)
+            output_stream = cast(BinaryIO, output_file)
+            copyfileobj(input_stream, output_stream)  # type: ignore[misc]
             with suppress(AttributeError):
                 output_stream.flush()
         else:

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2022 James R. Barlow
 # SPDX-License-Identifier: MPL-2.0
 
-"""Interface to Tesseract executable"""
+"""Interface to Tesseract executable."""
 
 from __future__ import annotations
 
@@ -34,10 +34,12 @@ HOCR_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
   <title></title>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
   <meta name='ocr-system' content='tesseract 4.1.1' />
-  <meta name='ocr-capabilities' content='ocr_page ocr_carea ocr_par ocr_line ocrx_word ocrp_wconf'/>
+  <meta name='ocr-capabilities'
+    content='ocr_page ocr_carea ocr_par ocr_line ocrx_word ocrp_wconf'/>
 </head>
 <body>
-  <div class='ocr_page' id='page_1' title='image "_blank.png"; bbox 0 0 {0} {1}; ppageno 0'>
+  <div class='ocr_page' id='page_1'
+    title='image "_blank.png"; bbox 0 0 {0} {1}; ppageno 0'>
   </div>
  </body>
 </html>
@@ -52,7 +54,7 @@ TESSERACT_THRESHOLDING_METHODS: dict[str, int] = {
 
 
 class TesseractLoggerAdapter(logging.LoggerAdapter):
-    "Prepend [tesseract] to messages emitted from tesseract"
+    """Prepend [tesseract] to messages emitted from tesseract."""
 
     def process(self, msg, kwargs):
         kwargs['extra'] = self.extra
@@ -104,7 +106,8 @@ TESSERACT_VERSION_PATTERN = r"""
 
 
 class TesseractVersion(Version):
-    "Modify standard packaging.Version regex to support Tesseract idiosyncracies."
+    """Modify standard packaging.Version regex to support Tesseract idiosyncrasies."""
+
     _regex = re.compile(
         r"^\s*" + TESSERACT_VERSION_PATTERN + r"\s*$", re.VERBOSE | re.IGNORECASE
     )
@@ -280,8 +283,10 @@ def page_timedout(timeout: float) -> None:
 
 
 def _generate_null_hocr(output_hocr: Path, output_text: Path, image: Path) -> None:
-    """Produce a .hocr file that reports no text detected on a page that is
-    the same size as the input image."""
+    """Produce a .hocr file that reports no text detected.
+
+    Ensures page is the same size as the input image.
+    """
     with Image.open(image) as im:
         w, h = im.size
 

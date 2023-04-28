@@ -251,8 +251,7 @@ def worker_init(max_pixels: int) -> None:
 
 
 def exec_concurrent(context: PdfContext, executor: Executor) -> Sequence[str]:
-    """Execute the pipeline concurrently"""
-
+    """Execute the pipeline concurrently."""
     # Run exec_page_sync on every page context
     options = context.options
     max_workers = min(len(context.pdfinfo), options.jobs)
@@ -316,8 +315,7 @@ def exec_concurrent(context: PdfContext, executor: Executor) -> Sequence[str]:
 def configure_debug_logging(
     log_filename: Path, prefix: str = ''
 ) -> logging.FileHandler:
-    """
-    Create a debug log file at a specified location.
+    """Create a debug log file at a specified location.
 
     Arguments:
         log_filename: Where to the put the log file.
@@ -420,13 +418,13 @@ def run_pipeline(
                 options, start_input_file, options.output_file, optimize_messages
             )
 
-    except (KeyboardInterrupt if not api else NeverRaise):
+    except KeyboardInterrupt if not api else NeverRaise:
         if options.verbose >= 1:
             log.exception("KeyboardInterrupt")
         else:
             log.error("KeyboardInterrupt")
         return ExitCode.ctrl_c
-    except (ExitCodeException if not api else NeverRaise) as e:
+    except ExitCodeException if not api else NeverRaise as e:
         e = cast(ExitCodeException, e)
         if options.verbose >= 1:
             log.exception("ExitCodeException")
@@ -435,7 +433,7 @@ def run_pipeline(
         else:
             log.error(type(e).__name__)
         return e.exit_code
-    except (PIL.Image.DecompressionBombError if not api else NeverRaise):
+    except PIL.Image.DecompressionBombError if not api else NeverRaise:
         log.exception(
             "A decompression bomb error was encountered while executing the "
             "pipeline. Use the argument --max-image-mpixels to raise the maximum "
@@ -453,7 +451,7 @@ def run_pipeline(
             "argument."
         )
         return ExitCode.child_process_error
-    except (Exception if not api else NeverRaise):  # pylint: disable=broad-except
+    except Exception if not api else NeverRaise:  # pylint: disable=broad-except
         log.exception("An exception occurred while executing the pipeline")
         return ExitCode.other_error
     finally:

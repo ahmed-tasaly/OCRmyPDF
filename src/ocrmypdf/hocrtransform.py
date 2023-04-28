@@ -99,11 +99,10 @@ class HocrTransformError(Exception):
 
 
 class HocrTransform:
+    """A class for converting documents from the hOCR format.
 
-    """
-    A class for converting documents from the hOCR format.
     For details of the hOCR format, see:
-    http://kba.cloud/hocr-spec/
+    http://kba.cloud/hocr-spec/.
     """
 
     box_pattern = re.compile(r'bbox((\s+\d+){4})')
@@ -119,6 +118,7 @@ class HocrTransform:
     )
 
     def __init__(self, *, hocr_filename: str | Path, dpi: float):
+        """Initialize the HocrTransform object."""
         self.dpi = dpi
         self.hocr = ElementTree.parse(os.fspath(hocr_filename))
 
@@ -143,9 +143,7 @@ class HocrTransform:
             raise HocrTransformError("hocr file is missing page dimensions")
 
     def __str__(self):  # pragma: no cover
-        """
-        Return the textual content of the HTML body
-        """
+        """Return the textual content of the HTML body."""
         if self.hocr is None:
             return ''
         body = self.hocr.find(self._child_xpath('body'))
@@ -155,9 +153,7 @@ class HocrTransform:
             return ''
 
     def _get_element_text(self, element: Element):
-        """
-        Return the textual content of the element and its children
-        """
+        """Return the textual content of the element and its children."""
         text = ''
         if element.text is not None:
             text += element.text
@@ -169,10 +165,7 @@ class HocrTransform:
 
     @classmethod
     def element_coordinates(cls, element: Element) -> Rect:
-        """
-        Returns a tuple containing the coordinates of the bounding box around
-        an element
-        """
+        """Get coordinates of the bounding box around an element."""
         out = Rect._make(0 for _ in range(4))
         if 'title' in element.attrib:
             matches = cls.box_pattern.search(element.attrib['title'])
@@ -183,9 +176,7 @@ class HocrTransform:
 
     @classmethod
     def baseline(cls, element: Element) -> tuple[float, float]:
-        """
-        Returns a tuple containing the baseline slope and intercept.
-        """
+        """Get baseline's slope and intercept."""
         if 'title' in element.attrib:
             matches = cls.baseline_pattern.search(element.attrib['title'])
             if matches:
@@ -193,9 +184,7 @@ class HocrTransform:
         return (0.0, 0.0)
 
     def pt_from_pixel(self, pxl) -> Rect:
-        """
-        Returns the quantity in PDF units (pt) given quantity in pixels
-        """
+        """Returns the quantity in PDF units (pt) given quantity in pixels."""
         return Rect._make((c / self.dpi * inch) for c in pxl)
 
     def _child_xpath(self, html_tag: str, html_class: str | None = None) -> str:
@@ -206,20 +195,8 @@ class HocrTransform:
 
     @classmethod
     def replace_unsupported_chars(cls, s: str) -> str:
-        """
-        Given an input string, returns the corresponding string that:
-        * is available in the Helvetica facetype
-        * does not contain any ligature (to allow easy search in the PDF file)
-        """
+        """Replaces characters with those available in the Helvetica typeface."""
         return s.translate(cls.ligatures)
-
-    def topdown_position(self, element):
-        pxl_line_coords = self.element_coordinates(element)
-        line_box = self.pt_from_pixel(pxl_line_coords)
-        # Coordinates here are still in the hocr coordinate system, so 0 on the y axis
-        # is the top of the page and increasing values of y will move towards the
-        # bottom of the page.
-        return line_box.y2
 
     def to_pdf(
         self,
@@ -231,8 +208,8 @@ class HocrTransform:
         invisible_text: bool = False,
         interword_spaces: bool = False,
     ) -> None:
-        """
-        Creates a PDF file with an image superimposed on top of the text.
+        """Creates a PDF file with an image superimposed on top of the text.
+
         Text is positioned according to the bounding box of the lines in
         the hOCR file.
         The image need not be identical to the image used to create the hOCR
@@ -323,6 +300,7 @@ class HocrTransform:
 
     @classmethod
     def polyval(cls, poly, x):  # pragma: no cover
+        """Calculate the value of a polynomial at a point."""
         return x * poly[0] + poly[1]
 
     def _do_line(

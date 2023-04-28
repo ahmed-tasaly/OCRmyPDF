@@ -8,10 +8,14 @@ from __future__ import annotations
 import logging
 import os
 
+from PIL import Image
+
 from ocrmypdf import hookimpl
 from ocrmypdf._exec import tesseract
+from ocrmypdf._jobcontext import PageContext
 from ocrmypdf.cli import numeric, str_to_int
 from ocrmypdf.helpers import clamp
+from ocrmypdf.imageops import calculate_downsample, downsample_image
 from ocrmypdf.pluginspec import OcrEngine
 from ocrmypdf.subprocess import check_external_program
 
@@ -58,7 +62,7 @@ def add_options(parser):
         metavar='METHOD',
         help=(
             "Set Tesseract 5.0+ input image thresholding mode. This may improve OCR "
-            "results on low quality images or those that contain high constrast color. "
+            "results on low quality images or those that contain high contrast color. "
             "legacy-otsu is the Tesseract default; adaptive-otsu is an improved Otsu "
             "algorithm with improved sort for background color changes; sauvola is "
             "based on local standard deviation."
@@ -69,8 +73,48 @@ def add_options(parser):
         default=180.0,
         type=numeric(float, 0),
         metavar='SECONDS',
-        help='Give up on OCR after the timeout, but copy the preprocessed page '
-        'into the final output',
+        help=(
+            "Give up on OCR after the timeout, but copy the preprocessed page "
+            "into the final output."
+        ),
+    )
+    tess.add_argument(
+        '--tesseract-non-ocr-timeout',
+        default=180.0,
+        type=numeric(float, 0),
+        metavar='SECONDS',
+        help=(
+            "Give up on non-OCR operations such as deskewing and orientation "
+            "after timeout. This is a separate timeout from --tesseract-timeout "
+            "because these operations are not as expensive as OCR."
+        ),
+    )
+    tess.add_argument(
+        '--tesseract-downsample-large-images',
+        action='store_true',
+        help=(
+            "Downsample large images before OCR. Tesseract has an upper limit on the "
+            "size images it will support. If this argument is given, OCRmyPDF will "
+            "downsample large images to fit Tesseract. This may reduce OCR quality, "
+            "on large images the most desirable text is usually larger. If this "
+            "parameter is not supplied, Tesseract will error out and produce no OCR "
+            "on the page in question. This argument should be used with a high value "
+            "of --tesseract-timeout to ensure Tesseract has enough to time."
+        ),
+    )
+    tess.add_argument(
+        '--tesseract-downsample-above',
+        action='store',
+        type=numeric(int, 100, 32767),
+        default=32767,
+        help=(
+            "Downsample images larger than this size pixel size in either dimension "
+            "before OCR. --tesseract-downsample-large-images downsamples only when "
+            "an image exceeds Tesseract's internal limits. This argument causes "
+            "downsampling to occur when an image exceeds the given size. This may "
+            "reduce OCR quality, but on large images the most desirable text is "
+            "usually larger."
+        ),
     )
     tess.add_argument(
         '--user-words',
@@ -132,6 +176,25 @@ def validate(pdfinfo, options):
     log.debug("Using Tesseract OpenMP thread limit %d", tess_threads)
 
 
+@hookimpl
+def filter_ocr_image(page: PageContext, image: Image.Image) -> Image.Image:
+    """Filter the image before OCR.
+
+    Tesseract cannot handle images with more than 32767 pixels in either axis,
+    or more than 2**31 bytes. This function resizes the image to fit within
+    those limits.
+    """
+    threshold = min(page.options.tesseract_downsample_above, 32767)
+
+    options = page.options
+    if options.tesseract_downsample_large_images:
+        size = calculate_downsample(
+            image, max_size=(threshold, threshold), max_bytes=(2**31) - 1
+        )
+        image = downsample_image(image, size)
+    return image
+
+
 class TesseractOcrEngine(OcrEngine):
     """Implements OCR with Tesseract."""
 
@@ -156,7 +219,7 @@ class TesseractOcrEngine(OcrEngine):
         return tesseract.get_orientation(
             input_file,
             engine_mode=options.tesseract_oem,
-            timeout=options.tesseract_timeout,
+            timeout=options.tesseract_non_ocr_timeout,
         )
 
     @staticmethod
@@ -165,7 +228,7 @@ class TesseractOcrEngine(OcrEngine):
             input_file,
             languages=options.languages,
             engine_mode=options.tesseract_oem,
-            timeout=options.tesseract_timeout,
+            timeout=options.tesseract_non_ocr_timeout,
         )
 
     @staticmethod

@@ -153,13 +153,14 @@ def test_autorotate_threshold(threshold, op, comparison_threshold, resources, ou
 
 
 def test_rotated_skew_timeout(resources, outpdf):
-    """This document contains an image that is rotated 90 into place with a
+    """Check rotated skew timeout.
+
+    This document contains an image that is rotated 90 into place with a
     /Rotate tag and intentionally skewed by altering the transformation matrix.
 
     This tests for a bug where the combination of preprocessing and a tesseract
     timeout produced a page whose dimensions did not match the original's.
     """
-
     input_file = resources / 'rotated_skew.pdf'
     in_pageinfo = PdfInfo(input_file)[0]
 
@@ -190,8 +191,7 @@ def test_rotated_skew_timeout(resources, outpdf):
     ), "Expected page rotation to be baked in"
 
 
-@pytest.mark.xfail(reason="tesseract timeout blocks tesseract based deskew")
-def test_rotate_deskew_timeout(resources, outdir):
+def test_rotate_deskew_ocr_timeout(resources, outdir):
     check_ocrmypdf(
         resources / 'rotated_skew.pdf',
         outdir / 'deskewed.pdf',
@@ -237,11 +237,11 @@ def test_rotate_page_level(image_angle, page_angle, resources, outdir):
             **IMG2PDF_KWARGS,
         )
         mempdf.seek(0)
-        pike = pikepdf.open(mempdf)
-        pike.pages[0].Rotate = page_angle
-        target = outdir / f'{prefix}_{image_angle}_{page_angle}.pdf'
-        pike.save(target)
-        return target
+        with pikepdf.open(mempdf) as pdf:
+            pdf.pages[0].Rotate = page_angle
+            target = outdir / f'{prefix}_{image_angle}_{page_angle}.pdf'
+            pdf.save(target)
+            return target
 
     reference = make_rotate_test('ref', 0, 0)
     test = make_rotate_test('test', image_angle, page_angle)

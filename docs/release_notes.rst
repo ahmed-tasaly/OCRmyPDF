@@ -28,6 +28,23 @@ tagged yet.
 
 .. |OCRmyPDF PyPI| image:: https://img.shields.io/pypi/v/ocrmypdf.svg
 
+v14.1.0
+=======
+
+-  Added ``--tesseract-non-ocr-timeout``. This allows using Tesseract's deskew
+   and other non-OCR features while disabling OCR using ``--tesseract-timeout 0``.
+-  Added ``--tesseract-downsample-large-images``. This downsamples larges images
+   that exceed the maximum image size Tesseract can handle. Large images may still
+   take a long time to process, but this allows them to be processed if that
+   is desired.
+-  Fixed :issue:`1082`, an issue with snap packaged building.
+-  Change linter to ruff, fix lint errors, update documentation.
+
+v14.0.4
+=======
+
+-  Fixed :issue:`1066, 1075`, an exception when processing certain malformed PDFs.
+
 v14.0.3
 =======
 
@@ -717,7 +734,7 @@ v10.3.2
 v10.3.1
 =======
 
--  Fixed a number of test suite failures with pdfminer.six older than veresion 20200402.
+-  Fixed a number of test suite failures with pdfminer.six older than version 20200402.
 -  Enabled support for pdfminer.six 20200720.
 
 v10.3.0

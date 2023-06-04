@@ -28,6 +28,36 @@ tagged yet.
 
 .. |OCRmyPDF PyPI| image:: https://img.shields.io/pypi/v/ocrmypdf.svg
 
+next
+====
+
+-  Improve PDF rasterization accuracy by using the `-dPDFSTOPONERROR` option
+   to Ghostscript. Use `--continue-on-soft-render-error` if you want to render
+   the PDF anyway. The plugin specification was adjusted to support this feature;
+   plugin authors may want to adapt PDF rasterizing and rendering
+   plugins. :issue:`1083`
+-  Renamed master branch to main.
+-  The calculated deskew angle is now logged. :issue:`1101`
+
+v14.2.1
+=======
+
+-  Fixed :issue:`977`, where images inside Form XObjects were always excluded
+   from image optimization.
+
+v14.2.0
+=======
+
+-  Added `--tesseract-downsample-above` to downsample larger images even when
+   they do not exceed Tesseract's internal limits. This can be used to speed
+   up OCR, possibly sacrificing accuracy.
+-  Fixed resampling AttributeError on older Pillow. :issue:`1096`
+-  Removed an error about using Ghostscript on PDFs with that have the /UserUnit
+   feature in use. Previously, Ghostscript would fail to process these PDFs,
+   but in all supported versions it is now supported, so the error is no longer
+   needed.
+-  Improved documentation around installing other language packs for Tesseract.
+
 v14.1.0
 =======
 

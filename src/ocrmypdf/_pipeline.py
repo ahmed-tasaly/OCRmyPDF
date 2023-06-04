@@ -185,15 +185,6 @@ def validate_pdfinfo_options(context: PdfContext) -> None:
             "Designer and can only be read by Adobe Acrobat or Adobe Reader."
         )
         raise InputFileError()
-    if pdfinfo.has_userunit and options.output_type.startswith('pdfa'):
-        log.error(
-            "This input file uses a PDF feature that is not supported "
-            "by Ghostscript, so you cannot use --output-type=pdfa for this "
-            "file. (Specifically, it uses the PDF-1.6 /UserUnit feature to "
-            "support very large or small page sizes, and Ghostscript cannot "
-            "output these files.)  Use --output-type=pdf instead."
-        )
-        raise InputFileError()
     if pdfinfo.has_acroform:
         if options.redo_ocr:
             log.error(
@@ -352,6 +343,7 @@ def rasterize_preview(input_file: Path, page_context: PageContext) -> Path:
         page_dpi=page_dpi,
         rotation=0,
         filter_vector=False,
+        stop_on_soft_error=not page_context.options.continue_on_soft_render_error,
     )
     return output_file
 
@@ -464,6 +456,7 @@ def rasterize(
         pageno=pageinfo.pageno + 1,
         rotation=correction,
         filter_vector=remove_vectors,
+        stop_on_soft_error=not page_context.options.continue_on_soft_render_error,
     )
     return output_file
 
@@ -745,6 +738,7 @@ def convert_to_pdfa(input_pdf: Path, input_ps_stub: Path, context: PdfContext) -
             if options.progress_bar
             else None
         ),
+        stop_on_soft_error=not options.continue_on_soft_render_error,
     )
 
     return output_file
@@ -831,6 +825,16 @@ def metadata_fixup(working_file: Path, context: PdfContext) -> Path:
     return output_file
 
 
+def _file_size_ratio(input_file: Path, output_file: Path) -> tuple[float | None, float | None]:
+    input_size = input_file.stat().st_size
+    output_size = output_file.stat().st_size
+    if output_size == 0:
+        return None, None
+    ratio = input_size / output_size
+    savings = 1 - output_size / input_size
+    return ratio, savings
+
+
 def optimize_pdf(
     input_file: Path, context: PdfContext, executor: Executor
 ) -> tuple[Path, Sequence[str]]:
@@ -843,13 +847,12 @@ def optimize_pdf(
         linearize=should_linearize(input_file, context),
     )
 
-    input_size = input_file.stat().st_size
-    output_size = output_file.stat().st_size
-    if output_size > 0:
-        ratio = input_size / output_size
-        savings = 1 - output_size / input_size
-        log.info(f"Optimize ratio: {ratio:.2f} savings: {(savings):.1%}")
-
+    ratio, savings = _file_size_ratio(input_file, output_file)
+    if ratio:
+        log.info(f"Image optimization ratio: {ratio:.2f} savings: {(savings):.1%}")
+    ratio, savings = _file_size_ratio(context.origin, output_file)
+    if ratio:
+        log.info(f"Total file size ratio: {ratio:.2f} savings: {(savings):.1%}")
     return output_pdf, messages
 
 

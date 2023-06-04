@@ -8,8 +8,24 @@ from __future__ import annotations
 import logging
 from functools import singledispatch
 from math import floor, sqrt
+from typing import Optional, Tuple
 
 from PIL import Image
+
+# Remove this workaround when we require Pillow >= 9.1.0
+try:
+    Resampling = Image.Resampling  # type: ignore
+except AttributeError:
+    # Pillow 9 shim
+    Resampling = Image  # type: ignore
+
+
+# While from __future__ import annotations, we use singledispatch here, which
+# does not support annotations. Disable check about using old-style typing
+# until Python 3.10, OR when drop singledispatch in ocrmypdf 15.
+# ruff: noqa: UP006
+# ruff: noqa: UP007
+
 
 log = logging.getLogger(__name__)
 
@@ -29,13 +45,13 @@ def bytes_per_pixel(mode: str) -> int:
 
 @singledispatch
 def calculate_downsample(
-    image_size: tuple[int, int],
+    image_size: Tuple[int, int],
     bytes_per_pixel: int,
     *,
-    max_size: tuple[int, int] | None = None,
-    max_pixels: int | None = None,
-    max_bytes: int | None = None,
-) -> tuple[int, int]:
+    max_size: Optional[Tuple[int, int]] = None,
+    max_pixels: Optional[int] = None,
+    max_bytes: Optional[int] = None,
+) -> Tuple[int, int]:
     """Calculate image size required to downsample an image to fit limits.
 
     If no limit is exceeded, the input image's size is returned.
@@ -55,11 +71,12 @@ def calculate_downsample(
         overage = max_size[0] / size[0], max_size[1] / size[1]
         size_factor = min(overage)
         if size_factor < 1.0:
-            log.debug("Resizing image to fit Tesseract image size limit")
-            size = (
-                max(floor(size[0] * size_factor), 1),
-                max(floor(size[1] * size_factor), 1),
-            )
+            log.debug("Resizing image to fit image dimensions limit")
+            size = floor(size[0] * size_factor), floor(size[1] * size_factor)
+            if size[0] == 0:
+                size = 1, min(size[1], max_size[1])
+            elif size[1] == 0:
+                size = min(size[0], max_size[0]), 1
 
     if max_pixels is not None:
         if size[0] * size[1] > max_pixels:
@@ -75,8 +92,14 @@ def calculate_downsample(
         if stride * height > max_bytes:
             log.debug("Resizing image to fit image byte size limit")
             bytes_factor = sqrt(max_bytes / (stride * height))
-            scaled_stride = max(floor(stride * bytes_factor), 1)
-            scaled_height = max(floor(height * bytes_factor), 1)
+            scaled_stride = floor(stride * bytes_factor)
+            scaled_height = floor(height * bytes_factor)
+            if scaled_stride == 0:
+                scaled_stride = bpp
+                scaled_height = min(max_bytes // bpp, scaled_height)
+            if scaled_height == 0:
+                scaled_height = 1
+                scaled_stride = min(max_bytes // scaled_height, scaled_stride)
             size = floor(scaled_stride / bpp), scaled_height
 
     return size
@@ -87,10 +110,10 @@ def _(
     image: Image.Image,
     arg: None = None,
     *,
-    max_size: tuple[int, int] | None = None,
-    max_pixels: int | None = None,
-    max_bytes: int | None = None,
-) -> tuple[int, int]:
+    max_size: Optional[Tuple[int, int]] = None,
+    max_pixels: Optional[int] = None,
+    max_bytes: Optional[int] = None,
+) -> Tuple[int, int]:
     """Calculate image size required to downsample an image to fit limits.
 
     If no limit is exceeded, the input image's size is returned.
@@ -116,7 +139,7 @@ def downsample_image(
     image: Image.Image,
     new_size: tuple[int, int],
     *,
-    resample_mode: Image.Resampling = Image.Resampling.BICUBIC,
+    resample_mode: Image.Resampling = Resampling.BICUBIC,
     reducing_gap: int = 3,
 ) -> Image.Image:
     """Downsample an image to fit within the given limits.

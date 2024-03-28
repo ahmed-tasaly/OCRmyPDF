@@ -46,16 +46,6 @@ place, and printing each filename in between runs:
 
    find . -printf '%p\n' -name '*.pdf' -exec ocrmypdf '{}' '{}' \;
 
-Alternatively, with a Docker container and streaming the file through
-standard input and output:
-
-.. code-block:: bash
-
-   find . -name '*.pdf' -print0 | xargs -0 | while read pdf; do
-       pdfout=$(mktemp)
-       docker run --rm -i jbarlow83/ocrmypdf - - <$pdf >$pdfout && cp $pdfout $pdf
-   done
-
 This only runs one ``ocrmypdf`` process at a time. This variation uses
 ``find`` to create a directory list and ``parallel`` to parallelize runs
 of ``ocrmypdf``, again updating files in place.
@@ -69,6 +59,15 @@ In a Windows batch file, use
 .. code-block:: bat
 
    for /r %%f in (*.pdf) do ocrmypdf %%f %%f
+
+With a Docker container, you will need to stream through standard input and output:
+
+.. code-block:: bash
+
+   find . -name '*.pdf' -print0 | xargs -0 | while read pdf; do
+       pdfout=$(mktemp)
+       docker run --rm -i jbarlow83/ocrmypdf - - <$pdf >$pdfout && cp $pdfout $pdf
+   done
 
 Sample script
 -------------
@@ -88,9 +87,9 @@ package <https://www.synology.com/en-global/dsm/packages/Docker>`__ is
 installed. Attached is a script to address particular quirks of using
 OCRmyPDF on one of these devices.
 
-This is only possible for x86-based Synology products. Some Synology
-products use ARM or Power processors and do not support Docker. Further
-adjustments might be needed to deal with the Synology's relatively
+At the time this script was written, it only worked for x86-based Synology
+products. It is not known if it will work on ARM-based Synology products.
+Further adjustments might be needed to deal with the Synology's relatively
 limited CPU and RAM.
 
 .. literalinclude:: ../misc/synology.py
@@ -151,32 +150,32 @@ The watcher service is included in the OCRmyPDF Docker image. To run it:
 .. code-block:: bash
 
     docker run \
-        -v <path to files to convert>:/input \
-        -v <path to store results>:/output \
-        -v <path to store processed originals>:/archive \
-        -e OCR_OUTPUT_DIRECTORY_YEAR_MONTH=1 \
-        -e OCR_ON_SUCCESS_ARCHIVE=1 \
-        -e OCR_DESKEW=1 \
-        -e PYTHONUNBUFFERED=1 \
-        -it --entrypoint python3 \
+        --volume <path to files to convert>:/input \
+        --volume <path to store results>:/output \
+        --volume <path to store processed originals>:/processed \
+        --env OCR_OUTPUT_DIRECTORY_YEAR_MONTH=1 \
+        --env OCR_ON_SUCCESS_ARCHIVE=1 \
+        --env OCR_DESKEW=1 \
+        --env PYTHONUNBUFFERED=1 \
+        --interactive --tty --entrypoint python3 \
         jbarlow83/ocrmypdf \
         watcher.py
 
 This service will watch for a file that matches ``/input/\*.pdf``,
 convert it to a OCRed PDF in ``/output/``, and move the processed
-original to ``/archive``. The parameters to this image are:
+original to ``/processed``. The parameters to this image are:
 
 .. csv-table:: watcher.py parameters for Docker
     :header: "Parameter", "Description"
     :widths: 50, 50
 
-    "``-v <path to files to convert>:/input``", "Files placed in this location will be OCRed"
-    "``-v <path to store results>:/output``", "This is where OCRed files will be stored"
-    "``-v <path to store processed originals>:/archive``", "Archive processed originals here"
-    "``-e OCR_OUTPUT_DIRECTORY_YEAR_MONTH=1``", "Define environment variable ``OCR_OUTPUT_DIRECTORY_YEAR_MONTH=1`` to place files in the output in ``{output}/{year}/{month}/{filename}``"
-    "``-e OCR_ON_SUCCESS_ARCHIVE=1``", "Define environment variable ``OCR_ON_SUCCESS_ARCHIVE`` to move processed originals"
-    "``-e OCR_DESKEW=1``", "Define environment variable ``OCR_DESKEW``  to apply deskew to crooked input PDFs"
-    "``-e PYTHONBUFFERED=1``", "This will force ``STDOUT`` to be unbuffered and allow you to see messages in docker logs"
+    "``--volume <path to files to convert>:/input``", "Files placed in this location will be OCRed"
+    "``--volume <path to store results>:/output``", "This is where OCRed files will be stored"
+    "``--volume <path to store processed originals>:/processed``", "Archive processed originals here"
+    "``--env OCR_OUTPUT_DIRECTORY_YEAR_MONTH=1``", "Define environment variable ``OCR_OUTPUT_DIRECTORY_YEAR_MONTH=1`` to place files in the output in ``{output}/{year}/{month}/{filename}``"
+    "``--env OCR_ON_SUCCESS_ARCHIVE=1``", "Define environment variable ``OCR_ON_SUCCESS_ARCHIVE`` to move processed originals"
+    "``--env OCR_DESKEW=1``", "Define environment variable ``OCR_DESKEW``  to apply deskew to crooked input PDFs"
+    "``--env PYTHONBUFFERED=1``", "This will force ``STDOUT`` to be unbuffered and allow you to see messages in docker logs"
 
 This service relies on polling to check for changes to the filesystem. It
 may not be suitable for some environments, such as filesystems shared on a

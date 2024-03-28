@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-import sys
+from collections import deque
 from io import BytesIO
 from os import fspath
 from pathlib import Path
@@ -17,39 +17,77 @@ from subprocess import PIPE, CalledProcessError
 from packaging.version import Version
 from PIL import Image, UnidentifiedImageError
 
-from ocrmypdf.exceptions import SubprocessOutputError
+from ocrmypdf.exceptions import ColorConversionNeededError, SubprocessOutputError
 from ocrmypdf.helpers import Resolution
 from ocrmypdf.subprocess import get_version, run, run_polling_stderr
 
-# Remove this workaround when we require Pillow >= 10
-try:
-    Transpose = Image.Transpose  # type: ignore
-except AttributeError:
-    # Pillow 9 shim
-    Transpose = Image  # type: ignore
+COLOR_CONVERSION_STRATEGIES = frozenset(
+    [
+        'CMYK',
+        'Gray',
+        'LeaveColorUnchanged',
+        'RGB',
+        'UseDeviceIndependentColor',
+    ]
+)
+# Ghostscript executable - gswin32c is not supported
+GS = 'gswin64c' if os.name == 'nt' else 'gs'
+
 
 log = logging.getLogger(__name__)
 
-# Most reliable way to get the bitness of Python interpreter, according to Python docs
-_IS_64BIT = sys.maxsize > 2**32
 
-_GSWIN = None
-if os.name == 'nt':
-    if _IS_64BIT:
-        _GSWIN = 'gswin64c'
-    else:
-        _GSWIN = 'gswin32c'
+class DuplicateFilter(logging.Filter):
+    """Filter out duplicate log messages.
 
-GS = _GSWIN if _GSWIN else 'gs'
-del _GSWIN
+    A context window of default 5 messages is used to determine if a message is a
+    duplicate. This is because some Ghostscript messages are word wrapped.
+    """
+
+    def __init__(self, logger: logging.Logger, context_window=5):
+        self.window: deque[str] = deque([], maxlen=context_window)
+        self.logger = logger
+        self.levelno = logging.DEBUG
+        self.count = 0
+
+    def filter(self, record):
+        if record.msg in self.window:
+            self.count += 1
+            self.levelno = record.levelno
+            return False
+        else:
+            if self.count >= 1:
+                rep_msg = f"(suppressed {self.count} repeated lines)"
+                self.count = 0  # Avoid infinite recursion
+                self.logger.log(self.levelno, rep_msg)
+                self.window.clear()
+            self.window.append(record.msg)
+            return True
 
 
-def version():
-    return get_version(GS)
+log.addFilter(DuplicateFilter(log))
+
+
+def version() -> Version:
+    return Version(get_version(GS))
 
 
 def _gs_error_reported(stream) -> bool:
     match = re.search(r'error', stream, flags=re.IGNORECASE)
+    return bool(match)
+
+
+def _gs_devicen_reported(stream) -> bool:
+    """Did Ghostscript warn about a DeviceN with inappropriate alternate?
+
+    If so, we need the user to select a color conversion, or the resulting PDF will
+    not present correctly in some PDF viewers.
+    """
+    match = re.search(
+        r'DeviceN.*inappropriate alternate',
+        stream,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
     return bool(match)
 
 
@@ -112,11 +150,11 @@ def rasterize_pdf(
                 # rotation is a clockwise angle and Image.ROTATE_* is
                 # counterclockwise so this cancels out the rotation
                 if rotation == 90:
-                    im = im.transpose(Transpose.ROTATE_90)
+                    im = im.transpose(Image.Transpose.ROTATE_90)
                 elif rotation == 180:
-                    im = im.transpose(Transpose.ROTATE_180)
+                    im = im.transpose(Image.Transpose.ROTATE_180)
                 elif rotation == 270:
-                    im = im.transpose(Transpose.ROTATE_270)
+                    im = im.transpose(Image.Transpose.ROTATE_270)
                 if rotation % 180 == 90:
                     page_dpi = page_dpi.flip_axis()
             im.save(fspath(output_file), dpi=page_dpi)
@@ -160,6 +198,7 @@ def generate_pdfa(
     output_file: os.PathLike,
     *,
     compression: str,
+    color_conversion_strategy: str,
     pdf_version: str = '1.5',
     pdfa_part: str = '2',
     progressbar_class=None,
@@ -189,8 +228,7 @@ def generate_pdfa(
             "-dAutoFilterGrayImages=true",
         ]
 
-    strategy = 'LeaveColorUnchanged'
-    gs_version = Version(version())
+    gs_version = version()
     if gs_version == Version('9.56.0'):
         # 9.56.0 breaks our OCR, should be fixed in 9.56.1
         # https://bugs.ghostscript.com/show_bug.cgi?id=705187
@@ -209,16 +247,16 @@ def generate_pdfa(
             "-dBATCH",
             "-dNOPAUSE",
             "-dSAFER",
-            "-dCompatibilityLevel=" + str(pdf_version),
+            f"-dCompatibilityLevel={str(pdf_version)}",
             "-sDEVICE=pdfwrite",
             "-dAutoRotatePages=/None",
-            "-sColorConversionStrategy=" + strategy,
+            f"-sColorConversionStrategy={color_conversion_strategy}",
         ]
         + (['-dPDFSTOPONERROR'] if stop_on_error else [])
         + compression_args
         + [
             "-dJPEGQ=95",
-            "-dPDFA=" + pdfa_part,
+            f"-dPDFA={pdfa_part}",
             "-dPDFACompatibilityPolicy=1",
             "-o",
             "-",
@@ -226,7 +264,6 @@ def generate_pdfa(
         ]
     )
     args_gs.extend(fspath(s) for s in pdf_pages)  # Stringify Path objs
-
     try:
         with Path(output_file).open('wb') as output:
             p = run_polling_stderr(
@@ -249,14 +286,11 @@ def generate_pdfa(
         # If there is an error we log the whole stderr, except for filtering
         # duplicates.
         if _gs_error_reported(stderr):
-            last_part = None
-            repcount = 0
+            # Ghostscript outputs the pattern **** Error: ....  frequently.
+            # Occasionally the error message is spammed many times. We filter
+            # out duplicates of this message using the filter above. We use
+            # the **** pattern to split the stderr into parts.
             for part in stderr.split('****'):
-                if part != last_part:
-                    if repcount > 1:
-                        log.error(f"(previous error message repeated {repcount} times)")
-                        repcount = 0
-                    log.error(part)
-                else:
-                    repcount += 1
-                last_part = part
+                log.error(part)
+        if _gs_devicen_reported(stderr):
+            raise ColorConversionNeededError()

@@ -1,11 +1,7 @@
 # SPDX-FileCopyrightText: 2022 James R. Barlow
 # SPDX-License-Identifier: MPL-2.0
 [build-system]
-requires = [
-  "setuptools >= 61",
-  "setuptools_scm[toml] >= 7.0.5",
-  "wheel"
-]
+requires = ["setuptools >= 61", "setuptools_scm[toml] >= 7.0.5", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -13,23 +9,19 @@ name = "ocrmypdf"
 dynamic = ["version"]
 description = "OCRmyPDF adds an OCR text layer to scanned PDF files, allowing them to be searched"
 readme = "README.md"
-license = {text = "MPL-2.0"}
-requires-python = ">=3.8"
+license = { text = "MPL-2.0" }
+requires-python = ">=3.10"
 dependencies = [
-  "Pillow>=8.2.0",
-  "coloredlogs>=14.0",
+  "Pillow>=10.0.1",
   "deprecation>=2.1.0",
-  "img2pdf>=0.3.0", # pure Python
+  "img2pdf>=0.5",
   "packaging>=20",
-  "pdfminer.six>=20201018",
-  "pikepdf>=5.0.1",
-  "pluggy>=0.13.0",
-  "reportlab>=3.5.66",
-  "tqdm>=4",
-  "importlib-resources>=5;python_version<'3.9'",  # until Python 3.9
-  "typing-extensions>=4;python_version<'3.10'",
+  "pdfminer.six>=20220319",
+  "pikepdf>=8.10.1",
+  "pluggy>=1",
+  "rich>=13",
 ]
-authors = [{name = "James R. Barlow", email="james@purplerock.ca"}]
+authors = [{ name = "James R. Barlow", email = "james@purplerock.ca" }]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
@@ -47,13 +39,7 @@ classifiers = [
   "Topic :: Text Processing :: Indexing",
   "Topic :: Text Processing :: Linguistic",
 ]
-keywords = [
-  "PDF",
-  "OCR",
-  "optical character recognition",
-  "PDF/A",
-  "scanning",
-]
+keywords = ["PDF", "OCR", "optical character recognition", "PDF/A", "scanning"]
 
 [project.urls]
 Documentation = "https://ocrmypdf.readthedocs.io/"
@@ -62,19 +48,20 @@ Tracker = "https://github.com/ocrmypdf/OCRmyPDF/issues"
 
 [project.optional-dependencies]
 docs = ["sphinx", "sphinx-issues", "sphinx-rtd-theme"]
-extended_test = ["PyMuPDF==1.19.1"]
+extended_test = ["PyMuPDF>=1.19.1"]
 test = [
-  "coverage[toml]>=5",
-  "hypothesis>=6.0.0",
-  "pytest>=6.0.0",
-  "pytest-cov>=2.11.1",
-  "pytest-xdist>=2.2.0",
-  "python-xmp-toolkit==2.0.1",  # also requires apt-get install libexempi3
+  "coverage[toml]>=6.2",
+  "hypothesis>=6.36.0",
+  "pytest>=6.2.5",
+  "pytest-cov>=3.0.0",
+  "pytest-xdist>=2.5.0",
+  "python-xmp-toolkit==2.0.1", # also requires apt-get install libexempi3
+  "reportlab>=3.6.8",
   "types-Pillow",
   "types-humanfriendly",
 ]
-watcher = ["watchdog>=1.0.2"]
-webservice = ["Flask>=1"]
+watcher = ["watchdog>=1.0.2", "typer[all]", "python-dotenv"]
+webservice = ["Flask>=2.0.1"]
 
 [project.scripts]
 ocrmypdf = "ocrmypdf.__main__:run"
@@ -89,11 +76,11 @@ namespaces = false
 [tool.setuptools_scm]
 
 [tool.distutils.bdist_wheel]
-python-tag = "py38"
+python-tag = "py310"
 
 [tool.black]
 line-length = 88
-target-version = ["py38", "py39", "py310", "py311"]
+target-version = ["py310", "py311", "py312"]
 skip-string-normalization = true
 include = '\.pyi?$'
 exclude = '''
@@ -117,7 +104,8 @@ exclude = '''
 [tool.coverage.run]
 branch = true
 parallel = true
-concurrency = ["multiprocessing"]
+concurrency = ["multiprocessing", "thread"]
+sigterm = true
 
 [tool.coverage.paths]
 source = ["src/ocrmypdf"]
@@ -134,28 +122,7 @@ exclude_lines = [
   "if 0:",
   "if False:",
   "if __name__ == .__main__.:",
-  "if TYPE_CHECKING:"
-]
-
-[tool.isort]
-profile = "black"
-known_first_party = "ocrmypdf"
-known_third_party = [
-  "PIL",
-  "flask",
-  "img2pdf",
-  "ocrmypdf",
-  "pdfminer",
-  "pikepdf",
-  "pkg_resources",
-  "pluggy",
-  "pytest",
-  "reportlab",
-  "setuptools",
-  "sphinx_rtd_theme",
-  "tqdm",
-  "watchdog",
-  "werkzeug"
+  "if TYPE_CHECKING:",
 ]
 
 [tool.pytest.ini_options]
@@ -164,7 +131,11 @@ norecursedirs = ["lib", ".pc", ".git", "venv", "output", "cache", "resources"]
 testpaths = ["tests"]
 addopts = "-n auto"
 markers = ["slow"]
-filterwarnings = ["ignore:.*XMLParser.*:DeprecationWarning"]
+filterwarnings = [
+  "ignore:.*XMLParser.*:DeprecationWarning",
+  "ignore:.*ast.NameConstant.*:DeprecationWarning:reportlab",
+  "ignore:.*distutils.*:DeprecationWarning:libxmp",
+]
 
 [tool.mypy]
 
@@ -177,29 +148,30 @@ module = [
   'pdfminer.*',
   'reportlab.*',
   'fitz',
-  'libxmp.utils'
+  'libxmp.utils',
 ]
 ignore_missing_imports = true
 
 [tool.ruff]
-select = [
-  "D", # pydocstyle
-  "E", # pycodestyle
-  "W", # pycodestyle
-  "F", # pyflakes
+target-version = "py310"
+
+[tool.ruff.lint]
+"select" = [
+  "D",    # pydocstyle
+  "E",    # pycodestyle
+  "W",    # pycodestyle
+  "F",    # pyflakes
   "I001", # isort
-  "UP", # pyupgrade
+  "UP",   # pyupgrade
 ]
-target-version = "py38"
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["ocrmypdf"]
-required-imports = ["from __future__ import annotations"]
 
-[tool.ruff.pydocstyle]
+[tool.ruff.lint.pydocstyle]
 convention = "google"
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "docs/conf.py" = ["D100", "D101", "D105"]
 "tests/*.py" = ["D100", "D101", "D102", "D103", "D105"]
 "misc/*.py" = ["D103", "D101", "D102"]

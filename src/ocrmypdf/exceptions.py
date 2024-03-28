@@ -113,3 +113,40 @@ class TesseractConfigError(ExitCodeException):
 
     exit_code = ExitCode.invalid_config
     message = "Error occurred while parsing a Tesseract configuration file"
+
+
+class DigitalSignatureError(InputFileError):
+    """PDF has a digital signature."""
+
+    message = dedent(
+        """\
+        Input PDF has a digital signature. OCR would alter the document,
+        invalidating the signature.
+        """
+    )
+
+
+class TaggedPDFError(InputFileError):
+    """PDF is tagged."""
+
+    message = dedent(
+        """\
+        This PDF is marked as a Tagged PDF. This often indicates
+        that the PDF was generated from an office document and does
+        not need OCR. Use --force-ocr, --skip-text or --redo-ocr to
+        override this error.
+        """
+    )
+
+
+class ColorConversionNeededError(BadArgsError):
+    """PDF needs color conversion."""
+
+    message = dedent(
+        """\
+        The input PDF has an unusual color space. Use
+        --color-conversion-strategy to convert to a common color space
+        such as RGB, or use --output-type pdf to skip PDF/A conversion
+        and retain the original color space.
+        """
+    )

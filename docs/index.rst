@@ -12,7 +12,7 @@ files, allowing them to be searched.
 
 PDF is the best format for storing and exchanging scanned documents.
 Unfortunately, PDFs can be difficult to modify. OCRmyPDF makes it easy to apply
-image processing and OCR to existing PDFs.
+image processing and OCR (recognized, searchable text) to existing PDFs.
 
 .. toctree::
    :maxdepth: 1
@@ -20,7 +20,6 @@ image processing and OCR to existing PDFs.
    introduction
    release_notes
    installation
-   optimizer
    languages
    jbig2
 
@@ -29,9 +28,11 @@ image processing and OCR to existing PDFs.
    :maxdepth: 2
 
    cookbook
+   optimizer
    docker
    advanced
    batch
+   cloud
    performance
    pdfsecurity
    errors
@@ -43,6 +44,7 @@ image processing and OCR to existing PDFs.
    api
    plugins
    apiref
+   design_notes
    contributing
    maintainers
 

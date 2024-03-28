@@ -3,50 +3,14 @@
 
 from __future__ import annotations
 
-import logging
-from io import BytesIO, StringIO
+from io import BytesIO
+from pathlib import Path
 
 import pytest
-from tqdm import tqdm
+from pdfminer.high_level import extract_text
 
 import ocrmypdf
-
-
-def test_raw_console():
-    bio = StringIO()
-    tqconsole = ocrmypdf.api.TqdmConsole(file=bio)
-    tqconsole.write("Test")
-    tqconsole.flush()
-    assert "Test" in bio.getvalue()
-
-
-def test_tqdm_console():
-    log = logging.getLogger()
-    log.setLevel(logging.INFO)
-
-    formatter = logging.Formatter('%(message)s')
-
-    bio = StringIO()
-    console = logging.StreamHandler(ocrmypdf.api.TqdmConsole(file=bio))
-    console.setFormatter(formatter)
-
-    log.addHandler(console)
-
-    def before_pbar(message):
-        # Ensure that log messages appear before the progress bar, even when
-        # printed after the progress bar updates.
-        v = bio.getvalue()
-        pbar_start_marker = '|#'
-        return v.index(message) < v.index(pbar_start_marker)
-
-    with tqdm(total=2, file=bio, disable=False) as pbar:
-        pbar.update()
-        msg = "1/2 above progress bar"
-        log.info(msg)
-        assert before_pbar(msg)
-
-    log.info("done")
-    assert not before_pbar("done")
+import ocrmypdf.api
 
 
 def test_language_list():
@@ -56,10 +20,45 @@ def test_language_list():
         ocrmypdf.ocr('doesnotexist.pdf', '_.pdf', language=['eng', 'deu'])
 
 
-def test_stream_api(resources):
+def test_stream_api(resources: Path):
     in_ = (resources / 'graph.pdf').open('rb')
     out = BytesIO()
 
     ocrmypdf.ocr(in_, out, tesseract_timeout=0.0)
     out.seek(0)
     assert b'%PDF' in out.read(1024)
+
+
+def test_hocr_api_multipage(resources: Path, outdir: Path, outpdf: Path):
+    ocrmypdf.api._pdf_to_hocr(
+        resources / 'multipage.pdf',
+        outdir,
+        language='eng',
+        skip_text=True,
+        plugins=['tests/plugins/tesseract_cache.py'],
+    )
+    assert (outdir / '000001_ocr_hocr.hocr').exists()
+    assert (outdir / '000006_ocr_hocr.hocr').exists()
+    assert not (outdir / '000004_ocr_hocr.hocr').exists()
+
+    ocrmypdf.api._hocr_to_ocr_pdf(outdir, outpdf)
+    assert outpdf.exists()
+
+
+def test_hocr_to_pdf_api(resources: Path, outdir: Path, outpdf: Path):
+    ocrmypdf.api._pdf_to_hocr(
+        resources / 'ccitt.pdf',
+        outdir,
+        language='eng',
+        skip_text=True,
+        plugins=['tests/plugins/tesseract_cache.py'],
+    )
+    assert (outdir / '000001_ocr_hocr.hocr').exists()
+    hocr = (outdir / '000001_ocr_hocr.hocr').read_text(encoding='utf-8')
+    mangled = hocr.replace('the', 'hocr')
+    (outdir / '000001_ocr_hocr.hocr').write_text(mangled, encoding='utf-8')
+
+    ocrmypdf.api._hocr_to_ocr_pdf(outdir, outpdf, optimize=0)
+
+    text = extract_text(outpdf)
+    assert 'hocr' in text and 'the' not in text

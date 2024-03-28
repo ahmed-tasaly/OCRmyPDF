@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 from math import isclose
 from pathlib import Path
 from subprocess import run
@@ -178,7 +179,7 @@ def test_maximum_options(renderer, output_type, multipage, outpdf):
 
 
 @pytest.mark.skipif(
-    tesseract.TesseractVersion(tesseract.version()) >= tesseract.TesseractVersion('5'),
+    tesseract.version() >= tesseract.TesseractVersion('5'),
     reason="tess 5 tries harder to find its files",
 )
 def test_tesseract_missing_tessdata(monkeypatch, resources, no_outpdf, tmpdir):
@@ -201,14 +202,14 @@ def test_force_ocr_on_pdf_with_no_images(resources, no_outpdf):
     # As a correctness test, make sure that --force-ocr on a PDF with no
     # content still triggers tesseract. If tesseract crashes, then it was
     # called.
-    p = run_ocrmypdf(
+    exitcode = run_ocrmypdf_api(
         resources / 'blank.pdf',
         no_outpdf,
         '--force-ocr',
         '--plugin',
         'tests/plugins/tesseract_crash.py',
     )
-    assert p.returncode == ExitCode.child_process_error
+    assert exitcode == ExitCode.child_process_error
     assert not no_outpdf.exists()
 
 
@@ -239,8 +240,8 @@ def test_german(resources, outdir):
 
 
 def test_klingon(resources, outpdf):
-    p = run_ocrmypdf(resources / 'francais.pdf', outpdf, '-l', 'klz')
-    assert p.returncode == ExitCode.missing_dependency
+    with pytest.raises(MissingDependencyError):
+        run_ocrmypdf_api(resources / 'francais.pdf', outpdf, '-l', 'klz')
 
 
 def test_missing_docinfo(resources, outpdf):
@@ -345,8 +346,8 @@ def test_tesseract_thresholding_invalid(value, resources, no_outpdf):
 
 
 @pytest.mark.parametrize('renderer', RENDERERS)
-def test_tesseract_crash(renderer, resources, no_outpdf):
-    p = run_ocrmypdf(
+def test_tesseract_crash(renderer, resources, no_outpdf, caplog):
+    exitcode = run_ocrmypdf_api(
         resources / 'ccitt.pdf',
         no_outpdf,
         '-v',
@@ -356,24 +357,22 @@ def test_tesseract_crash(renderer, resources, no_outpdf):
         '--plugin',
         'tests/plugins/tesseract_crash.py',
     )
-    assert p.returncode == ExitCode.child_process_error
+    assert exitcode == ExitCode.child_process_error
     assert not no_outpdf.exists()
-    assert "SubprocessOutputError" in p.stderr
+    assert "SubprocessOutputError" in caplog.text
 
 
-def test_tesseract_crash_autorotate(resources, no_outpdf):
-    p = run_ocrmypdf(
+def test_tesseract_crash_autorotate(resources, no_outpdf, caplog):
+    exitcode = run_ocrmypdf_api(
         resources / 'ccitt.pdf',
         no_outpdf,
         '-r',
         '--plugin',
         'tests/plugins/tesseract_crash.py',
     )
-    assert p.returncode == ExitCode.child_process_error
+    assert exitcode == ExitCode.child_process_error
     assert not no_outpdf.exists()
-    assert "uncaught exception" in p.stderr
-    print(p.stdout)
-    print(p.stderr)
+    assert "uncaught exception" in caplog.text
 
 
 @pytest.mark.parametrize('renderer', RENDERERS)
@@ -394,6 +393,20 @@ def test_tesseract_image_too_big(renderer, resources, outpdf):
 
 @pytest.mark.parametrize('encryption_level', [2, 3, 4, 6])
 def test_encrypted(resources, outpdf, encryption_level, caplog):
+    if os.name == 'darwin' and sys.version_info >= (3, 12) and encryption_level <= 4:
+        # Error is: RuntimeError: unable to load openssl legacy provider
+        # pikepdf obtains encryption from qpdf, which gets it from openssl among other
+        # providers.
+        # Error message itself comes from here:
+        # https://github.com/qpdf/qpdf/blob/da3eae39c8e5261196bbc1b460e5b556c6836dbf/libqpdf/QPDFCrypto_openssl.cc#L56
+        # Somehow pikepdf + Python 3.12 + macOS does not have this problem, despite
+        # using Homebrew's qpdf. Possibly the difference is that pikepdf's Python 3.12
+        # comes from cibuildwheel, and our macOS Python 3.12 comes from GitHub Actions
+        # setup-python. It may be necessary to build a custom qpdf for macOS.
+        # In any case, OCRmyPDF doesn't support loading encrypted files at all, it
+        # just complains about encryption, and it's using pikepdf to generate encrypted
+        # files for testing.
+        pytest.skip("GitHub Python 3.12 on macOS does not have openssl legacy support")
     encryption = pikepdf.models.encryption.Encryption(
         owner='ocrmypdf',
         user='ocrmypdf',
@@ -482,13 +495,13 @@ def protected_file(outdir):
     os.name == 'nt' or os.geteuid() == 0, reason="root can write to anything"
 )
 def test_destination_not_writable(resources, protected_file):
-    p = run_ocrmypdf(
+    exitcode = run_ocrmypdf_api(
         resources / 'jbig2.pdf',
         protected_file,
         '--plugin',
         'tests/plugins/tesseract_noop.py',
     )
-    assert p.returncode == ExitCode.file_access_error, "Expected error"
+    assert exitcode == ExitCode.file_access_error
 
 
 @pytest.fixture
@@ -625,7 +638,7 @@ def test_no_contents(resources, outpdf):
 
 
 @pytest.mark.parametrize(
-    'image', ['baiona.png', 'baiona_gray.png', 'baiona_alpha.png', 'congress.jpg']
+    'image', ['baiona.png', 'baiona_gray.png', 'baiona_alpha.png', 'baiona_color.jpg']
 )
 def test_compression_preserved(ocrmypdf_exec, resources, image, outpdf):
     input_file = str(resources / image)
@@ -681,7 +694,7 @@ def test_compression_preserved(ocrmypdf_exec, resources, image, outpdf):
     [
         ('baiona.png', 'jpeg'),
         ('baiona_gray.png', 'lossless'),
-        ('congress.jpg', 'lossless'),
+        ('baiona_color.jpg', 'lossless'),
     ],
 )
 def test_compression_changed(ocrmypdf_exec, resources, image, compression, outpdf):
@@ -791,15 +804,18 @@ def test_pdfa_n(pdfa_level, resources, outpdf):
     assert pdfa_info['conformance'] == f'PDF/A-{pdfa_level}B'
 
 
-def test_decompression_bomb_error(resources, outpdf):
-    p = run_ocrmypdf(resources / 'hugemono.pdf', outpdf)
-    assert 'decompression bomb' in p.stderr and '--max-image-mpixels' in p.stderr
+def test_decompression_bomb_error(resources, outpdf, caplog):
+    run_ocrmypdf_api(resources / 'hugemono.pdf', outpdf)
+    assert 'decompression bomb' in caplog.text
+    assert 'max-image-mpixels' in caplog.text
 
 
 @pytest.mark.slow
 def test_decompression_bomb_succeeds(resources, outpdf):
-    p = run_ocrmypdf(resources / 'hugemono.pdf', outpdf, '--max-image-mpixels', '2000')
-    assert p.returncode == 0
+    exitcode = run_ocrmypdf_api(
+        resources / 'hugemono.pdf', outpdf, '--max-image-mpixels', '2000'
+    )
+    assert exitcode == 0
 
 
 def test_text_curves(resources, outpdf):
@@ -829,37 +845,37 @@ def test_text_curves_force(resources, outpdf):
         assert len(info.pages[0].images) != 0, "force did not rasterize"
 
 
-def test_output_is_dir(resources, outdir):
-    p = run_ocrmypdf(
+def test_output_is_dir(resources, outdir, caplog):
+    exitcode = run_ocrmypdf_api(
         resources / 'trivial.pdf',
         outdir,
         '--force-ocr',
         '--plugin',
         'tests/plugins/tesseract_noop.py',
     )
-    assert p.returncode == ExitCode.file_access_error
-    assert 'is not a writable file' in p.stderr
+    assert exitcode == ExitCode.file_access_error
+    assert 'is not a writable file' in caplog.text
 
 
 @pytest.mark.skipif(os.name == 'nt', reason="symlink needs admin permissions")
 def test_output_is_symlink(resources, outdir):
     sym = Path(outdir / 'this_is_a_symlink')
     sym.symlink_to(outdir / 'out.pdf')
-    p = run_ocrmypdf(
+    exitcode = run_ocrmypdf_api(
         resources / 'trivial.pdf',
         sym,
         '--force-ocr',
         '--plugin',
         'tests/plugins/tesseract_noop.py',
     )
-    assert p.returncode == ExitCode.ok, p.stderr
+    assert exitcode == ExitCode.ok
     assert (outdir / 'out.pdf').stat().st_size > 0, 'target file not created'
 
 
-def test_livecycle(resources, no_outpdf):
-    p = run_ocrmypdf(resources / 'livecycle.pdf', no_outpdf)
+def test_livecycle(resources, no_outpdf, caplog):
+    exitcode = run_ocrmypdf_api(resources / 'livecycle.pdf', no_outpdf)
 
-    assert p.returncode == ExitCode.input_file, p.stderr
+    assert exitcode == ExitCode.input_file, caplog.text
 
 
 def test_version_check():
@@ -928,7 +944,7 @@ def test_outputtype_none_bad_setup(resources, outpdf):
 
 
 def test_outputtype_none(resources, outtxt):
-    p = run_ocrmypdf(
+    exitcode = run_ocrmypdf_api(
         resources / 'trivial.pdf',
         '-',
         '--output-type=none',
@@ -937,7 +953,8 @@ def test_outputtype_none(resources, outtxt):
         '--plugin',
         'tests/plugins/tesseract_noop.py',
     )
-    assert p.returncode == ExitCode.ok
+    assert exitcode == ExitCode.ok
+    assert outtxt.exists()
 
 
 @pytest.fixture

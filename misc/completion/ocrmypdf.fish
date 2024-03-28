@@ -14,8 +14,9 @@ complete -c ocrmypdf -s i -l clean-final -d "clean document images and keep resu
 complete -c ocrmypdf -l remove-vectors -d "don't send vector objects to OCR"
 
 complete -c ocrmypdf -s f -l force-ocr -d "OCR documents that already have printable text"
-complete -c ocrmypdf -s s -l skip-ocr -d "skip OCR on pages that text, otherwise try OCR"
+complete -c ocrmypdf -s s -l skip-text -d "skip OCR on any pages that already contain text"
 complete -c ocrmypdf -l redo-ocr -d "redo OCR on any pages that seem to have OCR already"
+complete -c ocrmypdf -l invalidate-digital-signatures -d "invalidate digital signatures and allow OCR to proceed"
 
 complete -c ocrmypdf -s k -l keep-temporary-files -d "keep temporary files (debug)"
 
@@ -83,6 +84,7 @@ complete -c ocrmypdf -x -l skip-big -d "skip OCR on pages larger than this many 
 complete -c ocrmypdf -x -l jpeg-quality -d "JPEG quality [0..100]"
 complete -c ocrmypdf -x -l png-quality -d "PNG quality [0..100]"
 complete -c ocrmypdf -x -l jbig2-lossy -d "enable lossy JBIG2 (see docs)"
+complete -c ocrmypdf -x -l jbig2-threshold -d "JBIG2 compression threshold (see docs)"
 complete -c ocrmypdf -x -l max-image-mpixels -d "image decompression bomb threshold"
 complete -c ocrmypdf -x -l pages -d "apply OCR to only the specified pages"
 complete -c ocrmypdf -x -l tesseract-config -d "set custom tesseract config file"
@@ -128,4 +130,27 @@ complete -c ocrmypdf -r -l user-words -d "specify location of user words file"
 complete -c ocrmypdf -r -l user-patterns -d "specify location of user patterns file"
 complete -c ocrmypdf -x -l fast-web-view -d "if file size if above this amount in MB, linearize PDF"
 
-complete -c ocrmypdf -x -a "(__fish_complete_suffix .pdf; __fish_complete_suffix .PDF; __fish_complete_suffix .jpg; __fish_complete_suffix .png)"
+function __fish_ocrmypdf_color_conversion_strategy
+    echo -e "LeaveColorUnchanged\t"(_ "do not convert color spaces (default)")
+    echo -e "CMYK\t"(_ "convert all color spaces to CMYK")
+    echo -e "Gray\t"(_ "convert all color spaces to grayscale")
+    echo -e "RGB\t"(_ "convert all color spaces to RGB")
+    echo -e "UseDeviceIndependentColor\t"(_ "convert all color spaces to ICC-based color spaces")
+end
+
+complete -c ocrmypdf -x -l color-conversion-strategy -a '(__fish_ocrmypdf_color_conversion_strategy)' -d "set color conversion strategy"
+
+function __fish_ocrmypdf_input_file_given
+    set -l tokens (commandline -opc)
+    for token in $tokens
+        if string match -q -r '^-' -- $token
+            continue
+        end
+        if test -f "$token"
+            return 0
+        end
+    end
+    return 1
+end
+
+complete -c ocrmypdf -x -n 'not __fish_ocrmypdf_input_file_given' -a "(__fish_complete_suffix .pdf)" -d "input file"

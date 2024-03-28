@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import warnings
 from unittest.mock import Mock
 
 import pytest
@@ -13,6 +14,10 @@ from reportlab.pdfgen.canvas import Canvas
 
 from ocrmypdf import _pipeline, pdfinfo
 from ocrmypdf.helpers import Resolution
+
+warnings.filterwarnings(
+    "ignore", category=DeprecationWarning, module="reportlab.lib.rl_safe_eval"
+)
 
 
 @pytest.fixture(scope='session')
@@ -52,13 +57,14 @@ def test_dpi_needed(image, text, vector, result, rgb_image, outdir):
     c.showPage()
     c.save()
 
-    mock = Mock()
-    mock.oversample = DUMMY_OVERSAMPLE_RESOLUTION[0]
-
     pi = pdfinfo.PdfInfo(outdir / 'dpi.pdf')
+    pageinfo = pi[0]
+    ctx = Mock()
+    ctx.options.oversample = DUMMY_OVERSAMPLE_RESOLUTION[0]
+    ctx.pageinfo = pageinfo
 
-    assert _pipeline.get_canvas_square_dpi(pi[0], mock) == result
-    assert _pipeline.get_page_square_dpi(pi[0], mock) == result
+    assert _pipeline.get_canvas_square_dpi(ctx) == result
+    assert _pipeline.get_page_square_dpi(ctx) == result
 
 
 @pytest.mark.parametrize(

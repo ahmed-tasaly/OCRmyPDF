@@ -7,6 +7,7 @@ import operator
 from io import BytesIO
 from math import cos, pi, sin
 from os import fspath
+from subprocess import run
 
 import img2pdf
 import pikepdf
@@ -19,16 +20,9 @@ from ocrmypdf._plugin_manager import get_plugin_manager
 from ocrmypdf.helpers import IMG2PDF_KWARGS, Resolution
 from ocrmypdf.pdfinfo import PdfInfo
 
-from .conftest import check_ocrmypdf, run_ocrmypdf
+from .conftest import check_ocrmypdf, run_ocrmypdf_api
 
 # pylintx: disable=unused-variable
-
-# Remove this workaround when we require Pillow >= 10
-try:
-    Transpose = Image.Transpose  # type: ignore
-except AttributeError:
-    # Pillow 9 shim
-    Transpose = Image  # type: ignore
 
 RENDERERS = ['hocr', 'sandwich']
 
@@ -202,7 +196,7 @@ def test_rotate_deskew_ocr_timeout(resources, outdir):
         '--tesseract-timeout',
         '0',
         '--pdf-renderer',
-        'sandwich',
+        'hocr',
     )
 
     cmp = compare_images_monochrome(
@@ -217,49 +211,75 @@ def test_rotate_deskew_ocr_timeout(resources, outdir):
     assert cmp > 0.95
 
 
+def make_rotate_test(imagefile, outdir, prefix, image_angle, page_angle):
+    memimg = BytesIO()
+    with Image.open(fspath(imagefile)) as im:
+        if image_angle != 0:
+            ccw_angle = -image_angle % 360
+            im = im.transpose(getattr(Image.Transpose, f'ROTATE_{ccw_angle}'))
+        im.save(memimg, format='PNG')
+    memimg.seek(0)
+    mempdf = BytesIO()
+    img2pdf.convert(
+        memimg.read(),
+        layout_fun=img2pdf.get_fixed_dpi_layout_fun((200, 200)),
+        outputstream=mempdf,
+        **IMG2PDF_KWARGS,
+    )
+    mempdf.seek(0)
+    with pikepdf.open(mempdf) as pdf:
+        pdf.pages[0].Rotate = page_angle
+        target = outdir / f'{prefix}_{image_angle}_{page_angle}.pdf'
+        pdf.save(target)
+        return target
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize('page_angle', (0, 90, 180, 270))
 @pytest.mark.parametrize('image_angle', (0, 90, 180, 270))
-def test_rotate_page_level(image_angle, page_angle, resources, outdir):
-    def make_rotate_test(prefix, image_angle, page_angle):
-        memimg = BytesIO()
-        with Image.open(fspath(resources / 'typewriter.png')) as im:
-            if image_angle != 0:
-                ccw_angle = -image_angle % 360
-                im = im.transpose(getattr(Transpose, f'ROTATE_{ccw_angle}'))
-            im.save(memimg, format='PNG')
-        memimg.seek(0)
-        mempdf = BytesIO()
-        img2pdf.convert(
-            memimg.read(),
-            layout_fun=img2pdf.get_fixed_dpi_layout_fun((200, 200)),
-            outputstream=mempdf,
-            **IMG2PDF_KWARGS,
-        )
-        mempdf.seek(0)
-        with pikepdf.open(mempdf) as pdf:
-            pdf.pages[0].Rotate = page_angle
-            target = outdir / f'{prefix}_{image_angle}_{page_angle}.pdf'
-            pdf.save(target)
-            return target
-
-    reference = make_rotate_test('ref', 0, 0)
-    test = make_rotate_test('test', image_angle, page_angle)
+def test_rotate_page_level(image_angle, page_angle, resources, outdir, caplog):
+    reference = make_rotate_test(resources / 'typewriter.png', outdir, 'ref', 0, 0)
+    test = make_rotate_test(resources, outdir, 'test', image_angle, page_angle)
     out = test.with_suffix('.out.pdf')
 
-    p = run_ocrmypdf(
+    exitcode = run_ocrmypdf_api(
         test,
         out,
         '-O0',
         '--rotate-pages',
         '--rotate-pages-threshold',
         '0.001',
-        text=False,
     )
-    err = p.stderr.decode('utf-8', errors='replace')
-    assert p.returncode == 0, err
+    assert exitcode == 0, caplog.text
 
     assert compare_images_monochrome(outdir, reference, 1, out, 1) > 0.2
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize('page_rotate_angle', (0, 90, 180, 270))
+def test_page_rotate_tag(page_rotate_angle, resources, outdir, caplog):
+    # Check that pages that have an image that is misrotated but restored to
+    # correct rotation with a /Rotate will be processed correct and yield text.
+    test = make_rotate_test(
+        resources / 'crom.png', outdir, 'test', -page_rotate_angle, page_rotate_angle
+    )
+    out = test.with_suffix('.out.pdf')
+    exitcode = run_ocrmypdf_api(
+        test,
+        out,
+        '-O0',
+    )
+    assert exitcode == 0, caplog.text
+
+    def pdftotext(filename):
+        return (
+            run(['pdftotext', '-enc', 'UTF-8', filename, '-'], capture_output=True)
+            .stdout.strip()
+            .decode('utf-8')
+        )
+
+    test_text = pdftotext(out)
+    assert 'is a' in test_text, test_text
 
 
 def test_rasterize_rotates(resources, tmp_path):
@@ -328,15 +348,15 @@ def test_simulated_scan(outdir):
 
     with pikepdf.open(outdir / 'out.pdf') as pdf:
         assert (
-            pdf.pages[1].MediaBox[2] > pdf.pages[1].MediaBox[3]
+            pdf.pages[1].mediabox[2] > pdf.pages[1].mediabox[3]
         ), "Wrong orientation: not landscape"
         assert (
-            pdf.pages[3].MediaBox[2] > pdf.pages[3].MediaBox[3]
+            pdf.pages[3].mediabox[2] > pdf.pages[3].mediabox[3]
         ), "Wrong orientation: Not landscape"
 
         assert (
-            pdf.pages[0].MediaBox[2] < pdf.pages[0].MediaBox[3]
+            pdf.pages[0].mediabox[2] < pdf.pages[0].mediabox[3]
         ), "Wrong orientation: Not portrait"
         assert (
-            pdf.pages[2].MediaBox[2] < pdf.pages[2].MediaBox[3]
+            pdf.pages[2].mediabox[2] < pdf.pages[2].mediabox[3]
         ), "Wrong orientation: Not portrait"

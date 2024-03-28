@@ -72,8 +72,7 @@ Debian and Ubuntu 20.04 or newer
 | |ubu-2004| |ubu-2204|                         |
 +-----------------------------------------------+
 
-Users of Debian 9 ("stretch") or later, or Ubuntu 18.04 or later, including users
-of Windows Subsystem for Linux, may simply
+Users of Debian or Ubuntu may simply
 
 .. code-block:: bash
 
@@ -100,11 +99,11 @@ For full details on version availability for your platform, check the
 Fedora
 ------
 
-.. |fedora-35| image:: https://repology.org/badge/version-for-repo/fedora_35/ocrmypdf.svg
-    :alt: Fedora 35
+.. |fedora-38| image:: https://repology.org/badge/version-for-repo/fedora_38/ocrmypdf.svg
+    :alt: Fedora 38
 
-.. |fedora-36| image:: https://repology.org/badge/version-for-repo/fedora_36/ocrmypdf.svg
-    :alt: Fedora 36
+.. |fedora-39| image:: https://repology.org/badge/version-for-repo/fedora_39/ocrmypdf.svg
+    :alt: Fedora 39
 
 .. |fedora-rawhide| image:: https://repology.org/badge/version-for-repo/fedora_rawhide/ocrmypdf.svg
     :alt: Fedore Rawhide
@@ -114,17 +113,17 @@ Fedora
 +-----------------------------------------------+
 | |latest|                                      |
 +-----------------------------------------------+
-| |fedora-35| |fedora-36| |fedora-rawhide|      |
+| |fedora-38| |fedora-39| |fedora-rawhide|      |
 +-----------------------------------------------+
 
-Users of Fedora 29 or later may simply
+Users of Fedora may simply
 
 .. code-block:: bash
 
     dnf install ocrmypdf tesseract-osd
 
 For full details on version availability, check the `Fedora Package
-Tracker <https://apps.fedoraproject.org/packages/ocrmypdf>`__.
+Tracker <https://packages.fedoraproject.org/pkgs/ocrmypdf/ocrmypdf/>`__.
 
 If the version available for your platform is out of date, you could opt
 to install the latest version from source. See `Installing HEAD revision
@@ -136,9 +135,35 @@ from sources <#installing-head-revision-from-sources>`__.
    issues. OCRmyPDF works fine without it but will produce larger output
    files. If you build jbig2enc from source, ocrmypdf 7.0.0 and later
    will automatically detect it on the ``PATH``. To add JBIG2 encoding,
-   see `Installing the JBIG2 encoder <jbig2>`__.
+   see :ref:`Installing the JBIG2 encoder <jbig2>`.
 
 .. _ubuntu-lts-latest:
+
+RHEL 9
+------
+
+Prepare the environment by getting Python 3.11:
+
+.. code-block:: bash
+
+    dnf install python3.11 python3.11-pip
+
+Then, follow `Requirements for pip and HEAD install <#requirements-for-pip-and-head-install>`__ to instal dependencies:
+
+.. code-block:: bash
+
+    dnf install ghostscript tesseract
+
+and build ocrmypdf in virtual environment:
+
+.. code-block:: bash
+
+    python3.11 -m venv .venv
+
+To add JBIG2 encoding, see :ref:`Installing the JBIG2 encoder <jbig2>`.
+
+Note Fedora packages for language data haven't been branched for RHEL/EPEL, but you can get traineddata files directly from `tesseract
+<https://github.com/tesseract-ocr/tessdata/>`__ and place them in ``/usr/share/tesseract/tessdata``.
 
 Installing the latest version on Ubuntu 22.04 LTS
 -------------------------------------------------
@@ -156,44 +181,20 @@ user, follow these steps:
 
 If you get the message ``WARNING: The script ocrmypdf is installed in
 '/home/$USER/.local/bin' which is not on PATH.``, you may need to re-login
-or open a new shell, or manually add this to your user's PATH.
+or open a new shell, or manually adjust your PATH.
 
 To add JBIG2 encoding, see :ref:`jbig2`.
 
 Ubuntu 20.04 LTS
 ----------------
 
-Ubuntu 20.04 includes ocrmypdf 9.6.0 - you can install that with ``apt``. To
-install a more recent version, uninstall the system-provided version of
-ocrmypdf, and install the following dependencies:
+Ubuntu 20.04 includes ocrmypdf 9.6.0 - you can install that with ``apt``. The
+most convenient way to install recent OCRmyPDF on older Ubuntu is to use
+Homebrew on Linux (Linuxbrew).
 
 .. code-block:: bash
 
-    sudo apt-get -y remove ocrmypdf  # remove system ocrmypdf, if installed
-    sudo apt-get -y update
-    sudo apt-get -y install \
-        ghostscript \
-        icc-profiles-free \
-        libxml2 \
-        pngquant \
-        python3-pip \
-        tesseract-ocr \
-        zlib1g
-
-To install ocrmypdf for the system:
-
-.. code-block:: bash
-
-    pip3 install ocrmypdf
-
-To install for the current user only:
-
-.. code-block:: bash
-
-    export PATH=$HOME/.local/bin:$PATH
-    pip3 install --user ocrmypdf
-
-To add JBIG2 encoding, see :ref:`jbig2`.
+    brew install ocrmypdf
 
 Arch Linux (AUR)
 ----------------
@@ -216,7 +217,7 @@ you are using a VM image, such as `the official Vagrant image
 be completed for you.
 
 Next you should install the `base-devel package group
-<https://www.archlinux.org/groups/x86_64/base-devel/>`__. This includes the
+<https://archlinux.org/packages/core/any/base-devel/>`__. This includes the
 standard tooling needed to build packages, such as a compiler and binary tools.
 
 .. code-block:: bash
@@ -259,7 +260,7 @@ page.
     <https://aur.archlinux.org/packages/jbig2enc-git/>`__ and may be installed
     using the same series of steps as for the installation OCRmyPDF AUR
     package. Alternatively, it may be built manually from source following the
-    instructions in `Installing the JBIG2 encoder <jbig2>`__.  If JBIG2 is
+    instructions in :ref:`Installing the JBIG2 encoder <jbig2>`.  If JBIG2 is
     installed, OCRmyPDF 7.0.0 and later will automatically detect it.
 
 Alpine Linux
@@ -274,6 +275,21 @@ To install OCRmyPDF for Alpine Linux:
 .. code-block:: bash
 
     apk add ocrmypdf
+
+Gentoo Linux
+------------
+
+.. image:: https://repology.org/badge/version-for-repo/gentoo_ovl_guru/ocrmypdf.svg
+    :alt: Gentoo Linux
+    :target: https://repology.org/metapackage/ocrmypdf
+
+To install OCRmyPDF on Gentoo Linux, use the following commands:
+
+.. code-block:: bash
+
+    eselect repository enable guru
+    emaint sync --repo guru
+    emerge --ask app-text/OCRmyPDF
 
 Other Linux packages
 --------------------
@@ -344,17 +360,11 @@ Update the homebrew pip:
 
     pip install --upgrade pip
 
-You can then install OCRmyPDF from PyPI, for the current user:
+You can then install OCRmyPDF from PyPI for the current user:
 
 .. code-block:: bash
 
     pip install --user ocrmypdf
-
-or system-wide:
-
-.. code-block:: bash
-
-    pip install ocrmypdf
 
 The command line program should now be available:
 
@@ -374,29 +384,35 @@ Native Windows
 
 You must install the following for Windows:
 
-* Python 3.8 (64-bit) or later
-* Tesseract 4.1.1 (64-bit) or later
-* Ghostscript 9.50 (64-bit) or later
+* Python 64-bit
+* Tesseract 64-bit
+* Ghostscript 64-bit
 
-Using the `Chocolatey <https://chocolatey.org/>`_ package manager, install the
-following when running in an Administrator command prompt:
+Using the `winget <https://docs.microsoft.com/en-us/windows/package-manager/winget/>`_
+package manager:
+
+* ``winget install -e --id Python.Python.3.11``
+* ``winget install -e --id UB-Mannheim.TesseractOCR``
+
+You will need to install Ghostscript manually, `since it does not support automated
+installs anymore <https://artifex.com/news/ghostscript-10.01.0-disabling-silent-install-option>`_.
+
+* `Ghostscript download page <https://ghostscript.com/releases/gsdnld.html>`_.`
+
+(Or alternately, using the `Chocolatey <https://chocolatey.org/>`_ package manager, install
+the following when running in an Administrator command prompt):
 
 * ``choco install python3``
 * ``choco install --pre tesseract``
-* ``choco install ghostscript``
 * ``choco install pngquant`` (optional)
 
-The commands above will install Python 3.x (latest version), Tesseract, Ghostscript
-and pngquant. Chocolatey may also need to install the Windows Visual C++ Runtime
-DLLs or other Windows patches, and may require a reboot.
+Either set of commands will install the required software. At the moment there is no
+single command to install Windows.
 
 You may then use ``pip`` to install ocrmypdf. (This can performed by a user or
 Administrator.):
 
-* ``pip install ocrmypdf``
-
-Chocolatey automatically selects appropriate versions of these applications. Please make sure
-you are installing the 64-bit versions.
+* ``python3 -m pip install ocrmypdf``
 
 OCRmyPDF will check the Windows Registry and standard locations in your Program Files
 for third party software it needs (specifically, Tesseract and Ghostscript). To
@@ -408,12 +424,12 @@ to change the PATH.
 
     As of early 2021, users have reported problems with the Microsoft Store version of
     Python and OCRmyPDF. These issues affect many other third party Python packages.
-    Please download Python from Python.org or Chocolatey instead, and do not use the
+    Please download Python from Python.org or a package manager instead of the
     Microsoft Store version.
 
 .. warning::
 
-    32-bit Windows might work, but is not supported.
+    32-bit Windows is not supported.
 
 Windows Subsystem for Linux
 ---------------------------
@@ -440,7 +456,7 @@ Cygwin64
 
 First install the the following prerequisite Cygwin packages using ``setup-x86_64.exe``::
 
-    python38 (or later)
+    python310 (or later)
     python3?-devel
     python3?-pip
     python3?-lxml
@@ -449,7 +465,7 @@ First install the the following prerequisite Cygwin packages using ``setup-x86_6
        (where 3? means match the version of python3 you installed)
 
     gcc-g++
-    ghostscript (<=9.50 or >=9.52-2 see note below)
+    ghostscript
     libexempi3
     libexempi-devel
     libffi6
@@ -459,13 +475,6 @@ First install the the following prerequisite Cygwin packages using ``setup-x86_6
     libqpdf-devel
     tesseract-ocr
     tesseract-ocr-devel
-
-.. note::
-
-    The Cygwin package for Ghostscript in versions 9.52 and
-    9.52-1 contained a bug that caused an exception to occur when
-    ocrmypdf invoked gs.  Make sure you have either 9.50 (or earlier)
-    or 9.52-2 (or later).
 
 Then open a Cygwin terminal (i.e. ``mintty``), run the following commands. Note
 that if you are using the version of ``pip`` that was installed with the Cygwin
@@ -518,21 +527,6 @@ the latest version. However, PyPI and ``pip`` cannot address the fact
 that ``ocrmypdf`` depends on certain non-Python system libraries and
 programs being installed.
 
-.. warning::
-
-    Debian and Ubuntu users: unfortunately, Debian and Ubuntu customize
-    Python in non-standard ways, and the nature of these customizations
-    varies from release to release. This can make for a frustrating
-    user experience. The instructions below work on almost all platforms that
-    have Python installed, except for Debian and Ubuntu, where you may need
-    to take additional steps. For best results on Debian and Ubuntu, use the
-    ``apt`` packages; or if these are too old, run
-    ``apt install python3-pip python3-venv``, create a virtual environment,
-    and install OCRmyPDF in that environment.
-
-    `See here for more information on Debian-Python issues
-    <https://gist.github.com/tiran/2dec9e03c6f901814f6d1e8dad09528e>`__.
-
 For best results, first install `your platform's
 version <https://repology.org/metapackage/ocrmypdf/versions>`__ of
 ``ocrmypdf``, using the instructions elsewhere in this document. Then
@@ -548,23 +542,24 @@ try:
 
     pip install --user ocrmypdf
 
+(If the message appears ``Requirement already satisfied: ocrmypdf in...``,
+you will need to use ``pip install --user --upgrade ocrmypdf``.)
+
 You should then be able to run ``ocrmypdf --version`` and see that the
 latest version was located.
 
-Since ``pip install --user`` does not work correctly on some platforms,
-notably Ubuntu 16.04 and older, and the Homebrew version of Python,
-instead use this for a system wide installation:
+Installing with pipx
+====================
+
+Some users may prefer pipx. As with the method above, you will need to
+satisfy all non-Python dependencies. Then if pipx is installed, you
+can use
 
 .. code-block:: bash
 
-    pip install ocrmypdf
+    pipx run ocrmypdf
 
-.. note::
-
-    AArch64 (ARM64) users: this process will be difficult because most
-    Python packages are not available as binary wheels for your platform.
-    You're probably better off using a platform install on Debian, Ubuntu,
-    or Fedora.
+(If not installed, pipx will install first.)
 
 Requirements for pip and HEAD install
 -------------------------------------
@@ -575,12 +570,15 @@ manager. ``pip`` cannot provide them.
 
 The following versions are required:
 
--  Python 3.8 or newer
--  Ghostscript 9.50 or newer
+-  Python 3.10 or newer
+-  Ghostscript 9.54 or newer
 -  Tesseract 4.1.1 or newer
 -  jbig2enc 0.29 or newer
 -  pngquant 2.5 or newer
 -  unpaper 6.1
+
+We recommend 64-bit versions of all software. (32-bit versions are not
+supported, although on Linux, they may still work.)
 
 jbig2enc, pngquant, and unpaper are optional. If missing certain
 features are disabled. OCRmyPDF will discover them as soon as they are
@@ -608,7 +606,7 @@ unfortunately, the ``pip install`` command cannot satisfy all of them.
 Installing HEAD revision from sources
 =====================================
 
-If you have ``git`` and Python 3.8 or newer installed, you can install
+If you have ``git`` and Python 3.10 or newer installed, you can install
 from source. When the ``pip`` installer runs, it will alert you if
 dependencies are missing.
 
@@ -625,7 +623,7 @@ environment:
     pip install git+https://github.com/ocrmypdf/OCRmyPDF.git
 
 Or, to install in `development
-mode <https://pythonhosted.org/setuptools/setuptools.html#development-mode>`__,
+mode <https://packaging.python.org/en/latest/guides/distributing-packages-using-setuptools/#working-in-development-mode>`__,
 allowing customization of OCRmyPDF, use the ``-e`` flag:
 
 .. code-block:: bash
@@ -637,9 +635,9 @@ system-wide:
 
 .. code-block:: bash
 
-    git clone -b master https://github.com/ocrmypdf/OCRmyPDF.git
-    python3 -m venv venv
-    source venv/bin/activate
+    git clone -b main https://github.com/ocrmypdf/OCRmyPDF.git
+    python3 -m venv .venv
+    source .venv/bin/activate
     cd OCRmyPDF
     pip install .
 
@@ -664,9 +662,9 @@ To install all of the development and test requirements:
 
 .. code-block:: bash
 
-    git clone -b master https://github.com/ocrmypdf/OCRmyPDF.git
-    python -m venv
-    source venv/bin/activate
+    git clone -b main https://github.com/ocrmypdf/OCRmyPDF.git
+    python -m .venv
+    source .venv/bin/activate
     cd OCRmyPDF
     pip install -e .[test]
 
@@ -687,3 +685,18 @@ To manually install the ``bash`` completion, copy
 To manually install the ``fish`` completion, copy
 ``misc/completion/ocrmypdf.fish`` to
 ``~/.config/fish/completions/ocrmypdf.fish``.
+
+Note on 32-bit support
+======================
+
+Many Python libraries no longer provide 32-bit binary wheels for Linux. This
+includes many of the libraries that OCRmyPDF depends on, such as
+Pillow. The easiest way to express this to end users is to say we don't
+support 32-bit Linux.
+
+However, if your Linux distribution still supports 32-bit binaries, you
+can still install and use OCRmyPDF. A warning message will appear.
+In practice, OCRmyPDF may need more than 32-bit memory space to run when
+large documents are processed, so there are practical limitations to what
+users can accomplish with it. Still, for the common use case of an 32-bit
+ARM NAS or Raspberry Pi processing small documents, it should work.

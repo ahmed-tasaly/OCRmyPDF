@@ -6,7 +6,8 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any, Callable, Mapping, TypeVar
+from collections.abc import Callable, Mapping
+from typing import Any, TypeVar
 
 from ocrmypdf._version import PROGRAM_NAME as _PROGRAM_NAME
 from ocrmypdf._version import __version__ as _VERSION
@@ -15,7 +16,11 @@ T = TypeVar('T', int, float)
 
 
 def numeric(basetype: Callable[[Any], T], min_: T | None = None, max_: T | None = None):
-    """Validator for numeric params."""
+    """Validator for numeric command line parameters.
+
+    Stipulates that the value must be of type basetype (typically int or float), and
+    optionally, within the range [min_, max_].
+    """
     min_ = basetype(min_) if min_ is not None else None
     max_ = basetype(max_) if max_ is not None else None
 
@@ -84,16 +89,16 @@ class LanguageSetAction(argparse.Action):
     def __init__(self, option_strings, dest, default=None, **kwargs):
         """Initialize the action."""
         if default is None:
-            default = set()
+            default = list()
         super().__init__(option_strings, dest, default=default, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
         """Add a language to the set."""
         dest = getattr(namespace, self.dest)
         if '+' in values:
-            dest.update(lang for lang in values.split('+'))
+            [dest.append(lang) for lang in values.split('+')]
         else:
-            dest.add(values)
+            dest.append(values)
 
 
 def get_parser():
@@ -177,7 +182,9 @@ Online documentation is located at:
         '--image-dpi',
         metavar='DPI',
         type=int,
-        help="For input image instead of PDF, use this DPI instead of file's.",
+        help="When the input file is an image, not a PDF, use this DPI instead "
+        "of the DPI claimed by the input file. If the input does not claim a "
+        "sensible DPI, this option will be required.",
     )
     parser.add_argument(
         '--output-type',
@@ -186,8 +193,8 @@ Online documentation is located at:
         help="Choose output type. 'pdfa' creates a PDF/A-2b compliant file for "
         "long term archiving (default, recommended) but may not suitable "
         "for users who want their file altered as little as possible. 'pdfa' "
-        "also has problems with full Unicode text. 'pdf' attempts to "
-        "preserve file contents as much as possible. 'pdf-a1' creates a "
+        "also has problems with full Unicode text. 'pdf' minimizes changes "
+        "to the input file. 'pdf-a1' creates a "
         "PDF/A1-b file. 'pdf-a2' is equivalent to 'pdfa'. 'pdf-a3' creates a "
         "PDF/A3-b file. 'none' will produce no output, which may be helpful if "
         "only the --sidecar is desired.",
@@ -359,6 +366,13 @@ Online documentation is located at:
         help="Skip OCR on pages larger than the specified amount of megapixels, "
         "but include skipped pages in final output",
     )
+    ocrsettings.add_argument(
+        '--invalidate-digital-signatures',
+        action='store_true',
+        help="Normally, OCRmyPDF will refuse to OCR a PDF that has a digital "
+        "signature. This option allows OCR to proceed, but the digital signature "
+        "will be invalidated.",
+    )
 
     advanced = parser.add_argument_group(
         "Advanced", "Advanced options to control OCRmyPDF"
@@ -376,7 +390,7 @@ Online documentation is located at:
         action='store',
         type=numeric(float, 0),
         metavar='MPixels',
-        help="Set maximum number of pixels to unpack before treating an image as a "
+        help="Set maximum number of megapixels to unpack before treating an image as a "
         "decompression bomb",
         default=250.0,
     )
@@ -394,19 +408,6 @@ Online documentation is located at:
         metavar='CONFIDENCE',
         help="Only rotate pages when confidence is above this value (arbitrary "
         "units reported by tesseract)",
-    )
-    advanced.add_argument(
-        '--pdfa-image-compression',
-        choices=['auto', 'jpeg', 'lossless'],
-        default='auto',
-        help="Specify how to compress images in the output PDF/A. 'auto' lets "
-        "OCRmyPDF decide.  'jpeg' changes all grayscale and color images to "
-        "JPEG compression.  'lossless' uses PNG-style lossless compression "
-        "for all images.  Monochrome images are always compressed using a "
-        "lossless codec.  Compression settings "
-        "are applied to all pages, including those for which OCR was "
-        "skipped.  Not supported for --output-type=pdf ; that setting "
-        "preserves the original compression of all images.",
     )
     advanced.add_argument(
         '--fast-web-view',

@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import logging
 import re
+from contextlib import suppress
 from math import pi
 from os import fspath
 from pathlib import Path
 from subprocess import PIPE, STDOUT, CalledProcessError, TimeoutExpired
 
 from packaging.version import Version
-from PIL import Image
 
 from ocrmypdf.exceptions import (
     MissingDependencyError,
@@ -25,25 +25,6 @@ from ocrmypdf.subprocess import get_version, run
 
 log = logging.getLogger(__name__)
 
-
-HOCR_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
-    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
- <head>
-  <title></title>
-<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
-  <meta name='ocr-system' content='tesseract 4.1.1' />
-  <meta name='ocr-capabilities'
-    content='ocr_page ocr_carea ocr_par ocr_line ocrx_word ocrp_wconf'/>
-</head>
-<body>
-  <div class='ocr_page' id='page_1'
-    title='image "_blank.png"; bbox 0 0 {0} {1}; ppageno 0'>
-  </div>
- </body>
-</html>
-"""
 
 TESSERACT_THRESHOLDING_METHODS: dict[str, int] = {
     'auto': 0,
@@ -113,13 +94,13 @@ class TesseractVersion(Version):
     )
 
 
-def version() -> str:
-    return get_version('tesseract', regex=r'tesseract\s(.+)')
+def version() -> Version:
+    return TesseractVersion(get_version('tesseract', regex=r'tesseract\s(.+)'))
 
 
 def has_thresholding() -> bool:
     """Does Tesseract have -c thresholding method capability?"""
-    return version() >= '5.0'
+    return version() >= Version('5.0')
 
 
 def get_languages() -> set[str]:
@@ -284,14 +265,11 @@ def page_timedout(timeout: float) -> None:
 
 
 def _generate_null_hocr(output_hocr: Path, output_text: Path, image: Path) -> None:
-    """Produce a .hocr file that reports no text detected.
+    """Produce an empty .hocr file.
 
     Ensures page is the same size as the input image.
     """
-    with Image.open(image) as im:
-        w, h = im.size
-
-    output_hocr.write_text(HOCR_TEMPLATE.format(w, h), encoding='utf-8')
+    output_hocr.write_text('', encoding='utf-8')
     output_text.write_text('[skipped page]', encoding='utf-8')
 
 
@@ -350,7 +328,7 @@ def generate_hocr(
         tesseract_log_output(stdout)
         # The sidecar text file will get the suffix .txt; rename it to
         # whatever caller wants it named
-        if prefix.with_suffix('.txt').exists():
+        with suppress(FileNotFoundError):
             prefix.with_suffix('.txt').replace(output_text)
 
 
@@ -406,7 +384,7 @@ def generate_pdf(
     try:
         p = run(args_tesseract, stdout=PIPE, stderr=STDOUT, timeout=timeout, check=True)
         stdout = p.stdout
-        if prefix.with_suffix('.txt').exists():
+        with suppress(FileNotFoundError):
             prefix.with_suffix('.txt').replace(output_text)
     except TimeoutExpired:
         page_timedout(timeout)

@@ -41,15 +41,11 @@ def make_opts(*args, **kwargs):
     return opts
 
 
-def test_hocr_notlatin_warning(caplog):
-    vd.check_options_output(
-        make_opts_pm(language='chi_sim', pdf_renderer='hocr', output_type='pdfa')[0]
-    )
-    assert 'PDF renderer is known to cause' in caplog.text
-
-
 def test_old_tesseract_error():
-    with patch('ocrmypdf._exec.tesseract.version', return_value='4.00.00alpha'):
+    with patch(
+        'ocrmypdf._exec.tesseract.version',
+        return_value=TesseractVersion('4.00.00alpha'),
+    ):
         with pytest.raises(MissingDependencyError):
             vd.check_options(*make_opts_pm(pdf_renderer='sandwich', language='eng'))
 
@@ -68,7 +64,9 @@ def test_tesseract_not_installed(caplog):
 
 def test_lossless_redo():
     with pytest.raises(BadArgsError):
-        vd.check_options_output(make_opts(redo_ocr=True, deskew=True))
+        options = make_opts(redo_ocr=True, deskew=True)
+        vd.check_options_output(options)
+        vd.set_lossless_reconstruction(options)
 
 
 def test_mutex_options():
@@ -166,8 +164,8 @@ def test_language_warning(caplog):
     with patch(
         'ocrmypdf._validation.locale.getlocale', return_value=('en_US', 'UTF-8')
     ) as mock:
-        vd.check_options_languages(opts, {'eng'})
-        assert opts.languages == {'eng'}
+        vd.check_options_languages(opts, ['eng'])
+        assert opts.languages == ['eng']
         assert '' in caplog.text
         mock.assert_called_once()
 
@@ -175,65 +173,72 @@ def test_language_warning(caplog):
     with patch(
         'ocrmypdf._validation.locale.getlocale', return_value=('fr_FR', 'UTF-8')
     ) as mock:
-        vd.check_options_languages(opts, {'eng'})
-        assert opts.languages == {'eng'}
+        vd.check_options_languages(opts, ['eng'])
+        assert opts.languages == ['eng']
         assert 'assuming --language' in caplog.text
         mock.assert_called_once()
+
+
+def make_version(version):
+    def _make_version():
+        return TesseractVersion(version)
+
+    return _make_version
 
 
 def test_version_comparison():
     vd.check_external_program(
         program="dummy_basic",
         package="dummy",
-        version_checker=lambda: '9.0',
+        version_checker=make_version('9.0'),
         need_version='8.0.2',
     )
     vd.check_external_program(
         program="dummy_doubledigit",
         package="dummy",
-        version_checker=lambda: '10.0',
+        version_checker=make_version('10.0'),
         need_version='8.0.2',
     )
     with pytest.raises(MissingDependencyError):
         vd.check_external_program(
             program="tesseract",
             package="tesseract",
-            version_checker=lambda: '4.0.0-beta.1',
+            version_checker=make_version('4.0.0-beta.1'),
             need_version='4.1.1',
             version_parser=TesseractVersion,
         )
     vd.check_external_program(
         program="tesseract",
         package="tesseract",
-        version_checker=lambda: 'v5.0.0-alpha.20200201',
+        version_checker=make_version('v5.0.0-alpha.20200201'),
         need_version='4.1.1',
         version_parser=TesseractVersion,
     )
     vd.check_external_program(
         program="tesseract",
         package="tesseract",
-        version_checker=lambda: '5.0.0-rc1.20211030',
+        version_checker=make_version('5.0.0-rc1.20211030'),
         need_version='4.1.1',
         version_parser=TesseractVersion,
     )
     vd.check_external_program(
         program="tesseract",
         package="tesseract",
-        version_checker=lambda: 'v4.1.1.20181030',  # Used in some Windows builds
+        version_checker=make_version('v4.1.1.20181030'),  # Used in some Windows builds
         need_version='4.1.1',
         version_parser=TesseractVersion,
     )
     vd.check_external_program(
         program="gs",
         package="ghostscript",
-        version_checker=lambda: '10.0',
+        version_checker=make_version('10.0'),
         need_version='9.50',
     )
     with pytest.raises(MissingDependencyError):
         vd.check_external_program(
             program="tesseract",
             package="tesseract",
-            version_checker=lambda: '4.1.1-rc2-25-g9707',
+            version_checker=make_version('4.1.1-rc2-25-g9707'),
             need_version='4.1.1',
             version_parser=TesseractVersion,
         )
@@ -241,7 +246,7 @@ def test_version_comparison():
         vd.check_external_program(
             program="dummy_fails",
             package="dummy",
-            version_checker=lambda: '1.0',
+            version_checker=make_version('1.0'),
             need_version='2.0',
         )
 
@@ -282,7 +287,7 @@ def test_two_languages():
             parser=get_parser(),
             language='fakelang1+fakelang2',
         ),
-        {'fakelang1', 'fakelang2'},
+        ['fakelang1', 'fakelang2'],
     )
 
 

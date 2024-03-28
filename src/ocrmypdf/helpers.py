@@ -10,30 +10,29 @@ import multiprocessing
 import os
 import shutil
 import warnings
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import suppress
+from decimal import Decimal
 from io import StringIO
 from math import isclose, isfinite
 from pathlib import Path
-from typing import Any, Generic, Sequence, SupportsFloat, SupportsRound, TypeVar
+from statistics import harmonic_mean
+from typing import (
+    Any,
+    Generic,
+    TypeVar,
+)
 
 import img2pdf
 import pikepdf
-from packaging.version import Version
+from deprecation import deprecated
 
 log = logging.getLogger(__name__)
 
-if Version(img2pdf.__version__) < Version('0.4.0'):
-    IMG2PDF_KWARGS = dict(without_pdfw=True)
-elif Version(img2pdf.__version__) < Version('0.4.3'):
-    IMG2PDF_KWARGS = dict(engine=img2pdf.Engine.pikepdf)
-else:
-    IMG2PDF_KWARGS = dict(
-        engine=img2pdf.Engine.pikepdf, rotation=img2pdf.Rotation.ifvalid
-    )
+IMG2PDF_KWARGS = dict(engine=img2pdf.Engine.pikepdf, rotation=img2pdf.Rotation.ifvalid)
 
 
-T = TypeVar('T', bound=SupportsRound[Any])
+T = TypeVar('T', float, int, Decimal)
 
 
 class Resolution(Generic[T]):
@@ -77,21 +76,40 @@ class Resolution(Generic[T]):
     @property
     def is_finite(self) -> bool:
         """True if both x and y are finite numbers."""
-        if isinstance(self.x, SupportsFloat) and isinstance(self.y, SupportsFloat):
-            return isfinite(self.x) and isfinite(self.y)
-        return True
+        return isfinite(self.x) and isfinite(self.y)
+
+    def to_scalar(self) -> float:
+        """Return the harmonic mean of x and y as a 1D approximation.
+
+        In most cases, Resolution is 2D, but typically it is "square" (x == y) and
+        can be approximated as a single number. When not square, the harmonic mean
+        is used to approximate the 2D resolution as a single number.
+        """
+        return harmonic_mean([float(self.x), float(self.y)])
+
+    def _take_minmax(
+        self, vals: Iterable[Any], yvals: Iterable[Any] | None, cmp: Callable
+    ) -> Resolution:
+        """Return a new Resolution object with the maximum resolution of inputs."""
+        if yvals is not None:
+            return Resolution(cmp(self.x, *vals), cmp(self.y, *yvals))
+        cmp_x, cmp_y = self.x, self.y
+        for x, y in vals:
+            cmp_x = cmp(x, cmp_x)
+            cmp_y = cmp(y, cmp_y)
+        return Resolution(cmp_x, cmp_y)
 
     def take_max(
         self, vals: Iterable[Any], yvals: Iterable[Any] | None = None
     ) -> Resolution:
         """Return a new Resolution object with the maximum resolution of inputs."""
-        if yvals is not None:
-            return Resolution(max(self.x, *vals), max(self.y, *yvals))
-        max_x, max_y = self.x, self.y
-        for x, y in vals:
-            max_x = max(x, max_x)
-            max_y = max(y, max_y)
-        return Resolution(max_x, max_y)
+        return self._take_minmax(vals, yvals, max)
+
+    def take_min(
+        self, vals: Iterable[Any], yvals: Iterable[Any] | None = None
+    ) -> Resolution:
+        """Return a new Resolution object with the minimum resolution of inputs."""
+        return self._take_minmax(vals, yvals, min)
 
     def flip_axis(self) -> Resolution[T]:
         """Return a new Resolution object with x and y swapped."""
@@ -103,11 +121,11 @@ class Resolution(Generic[T]):
 
     def __str__(self):
         """Return a string representation of the resolution."""
-        return f"{self.x:f}x{self.y:f}"
+        return f"{self.x:f}×{self.y:f}"
 
     def __repr__(self):  # pragma: no cover
         """Return a repr() of the resolution."""
-        return f"Resolution({self.x}x{self.y} dpi)"
+        return f"Resolution({self.x!r}, {self.y!r})"
 
     def __eq__(self, other):
         """Return True if the resolution is equal to another resolution."""
@@ -118,11 +136,12 @@ class Resolution(Generic[T]):
         return self._isclose(self.x, other.x) and self._isclose(self.y, other.y)
 
 
+@deprecated(deprecated_in='15.4.0')
 class NeverRaise(Exception):
     """An exception that is never raised."""
 
 
-def safe_symlink(input_file: os.PathLike, soft_link_name: os.PathLike):
+def safe_symlink(input_file: os.PathLike, soft_link_name: os.PathLike) -> None:
     """Create a symbolic link at ``soft_link_name``, which references ``input_file``.
 
     Think of this as copying ``input_file`` to ``soft_link_name`` with less overhead.
@@ -137,7 +156,7 @@ def safe_symlink(input_file: os.PathLike, soft_link_name: os.PathLike):
     # Guard against soft linking to oneself
     if input_file == soft_link_name:
         log.warning(
-            "No symbolic link created. You are using  the original data directory "
+            "No symbolic link created. You are using the original data directory "
             "as the working directory."
         )
         return
@@ -163,7 +182,7 @@ def safe_symlink(input_file: os.PathLike, soft_link_name: os.PathLike):
     os.symlink(os.path.abspath(input_file), soft_link_name)
 
 
-def samefile(file1: os.PathLike, file2: os.PathLike):
+def samefile(file1: os.PathLike, file2: os.PathLike) -> bool:
     """Return True if two files are the same file.
 
     Attempts to account for different relative paths to the same file.
@@ -282,12 +301,12 @@ def check_pdf(input_file: Path) -> bool:
             return False
 
 
-def clamp(n, smallest, largest):  # mypy doesn't understand types for this
+def clamp(n: T, smallest: T, largest: T) -> T:
     """Clamps the value of ``n`` to between ``smallest`` and ``largest``."""
     return max(smallest, min(n, largest))
 
 
-def remove_all_log_handlers(logger):
+def remove_all_log_handlers(logger: logging.Logger) -> None:
     """Remove all log handlers, usually used in a child process.
 
     The child process inherits the log handlers from the parent process when
@@ -300,15 +319,17 @@ def remove_all_log_handlers(logger):
         handler.close()  # To ensure handlers with opened resources are released
 
 
-def pikepdf_enable_mmap():
-    """Enable pikepdf mmap."""
-    # try:
-    #     if pikepdf._qpdf.set_access_default_mmap(True):
-    #         log.debug("pikepdf mmap enabled")
-    # except AttributeError:
-    #     log.debug("pikepdf mmap not available")
-    # We found a race condition probably related to pybind issue #2252 that can
-    # cause a crash. For now, disable pikepdf mmap to be on the safe side.
-    # Fix is not in pybind11 2.6.0
-    # log.debug("pikepdf mmap disabled")
-    return
+def pikepdf_enable_mmap() -> None:
+    """Enable pikepdf memory mapping."""
+    try:
+        pikepdf._core.set_access_default_mmap(True)
+        log.debug(
+            "pikepdf mmap "
+            + (
+                'enabled'
+                if pikepdf._core.get_access_default_mmap()  # type: ignore[attr-defined]
+                else 'disabled'
+            )
+        )
+    except AttributeError:
+        log.debug("pikepdf mmap not available")

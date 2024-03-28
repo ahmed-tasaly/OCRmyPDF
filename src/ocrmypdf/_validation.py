@@ -12,9 +12,9 @@ import os
 import sys
 import unicodedata
 from argparse import Namespace
+from collections.abc import Sequence
 from pathlib import Path
 from shutil import copyfileobj
-from typing import Sequence
 
 import pikepdf
 import PIL
@@ -28,7 +28,6 @@ from ocrmypdf.exceptions import (
     OutputFileAccessError,
 )
 from ocrmypdf.helpers import is_file_writable, monotonic, safe_symlink
-from ocrmypdf.hocrtransform import HOCR_OK_LANGS
 from ocrmypdf.subprocess import check_external_program
 
 # -------------
@@ -43,23 +42,26 @@ log = logging.getLogger(__name__)
 
 
 def check_platform() -> None:
-    if os.name == 'nt' and sys.maxsize <= 2**32:  # pragma: no cover
-        # 32-bit interpreter on Windows
-        log.error(
-            "You are running OCRmyPDF in a 32-bit (x86) Python interpreter."
+    if sys.maxsize <= 2**32:  # pragma: no cover
+        log.warning(
+            "You are running OCRmyPDF in a 32-bit (x86) Python interpreter. "
+            "This is not supported. 32-bit does not have enough address space "
+            "to process large files. "
             "Please use a 64-bit (x86-64) version of Python."
         )
 
 
-def check_options_languages(options: Namespace, ocr_engine_languages: set[str]) -> None:
+def check_options_languages(
+    options: Namespace, ocr_engine_languages: list[str]
+) -> None:
     if not options.languages:
-        options.languages = {DEFAULT_LANGUAGE}
+        options.languages = [DEFAULT_LANGUAGE]
         system_lang = locale.getlocale()[0]
         if system_lang and not system_lang.startswith('en'):
             log.debug("No language specified; assuming --language %s", DEFAULT_LANGUAGE)
     if not ocr_engine_languages:
         return
-    missing_languages = options.languages - ocr_engine_languages
+    missing_languages = set(options.languages) - set(ocr_engine_languages)
     if missing_languages:
         lang_text = '\n'.join(lang for lang in missing_languages)
         msg = (
@@ -71,23 +73,15 @@ def check_options_languages(options: Namespace, ocr_engine_languages: set[str]) 
             "See the online documentation for instructions:\n"
             "    https://ocrmypdf.readthedocs.io/en/latest/languages.html\n"
             "\n"
-            "Note: most languages are identified by a 3-digit ISO 639-2 Code.\n"
-            "For example, English is 'eng', German is 'deu', and Spanish is 'spa'."
+            "Note: most languages are identified by a 3-letter ISO 639-2 Code.\n"
+            "For example, English is 'eng', German is 'deu', and Spanish is 'spa'.\n"
+            "Simplified Chinese is 'chi_sim' and Traditional Chinese is 'chi_tra'."
             "\n"
         )
         raise MissingDependencyError(msg)
 
 
 def check_options_output(options: Namespace) -> None:
-    is_latin = options.languages.issubset(HOCR_OK_LANGS)
-
-    if options.pdf_renderer.startswith('hocr') and not is_latin:
-        log.warning(
-            "The 'hocr' PDF renderer is known to cause problems with one "
-            "or more of the languages in your document.  Use "
-            "`--pdf-renderer auto` (the default) to avoid this issue."
-        )
-
     if options.output_type == 'none' and options.output_file not in (os.devnull, '-'):
         raise BadArgsError(
             "Since you specified `--output-type none`, the output file "
@@ -95,6 +89,8 @@ def check_options_output(options: Namespace) -> None:
             f"`-` to suppress this message."
         )
 
+
+def set_lossless_reconstruction(options: Namespace) -> None:
     lossless_reconstruction = False
     if not any(
         (
@@ -201,16 +197,6 @@ def check_options_ocr_behavior(options: Namespace) -> None:
         options.pages = _pages_from_ranges(options.pages)
 
 
-def check_options_advanced(options: Namespace) -> None:
-    if options.pdfa_image_compression != 'auto' and not options.output_type.startswith(
-        'pdfa'
-    ):
-        log.warning(
-            "--pdfa-image-compression argument only applies when "
-            "--output-type is one of 'pdfa', 'pdfa-1', or 'pdfa-2'"
-        )
-
-
 def check_options_metadata(options: Namespace) -> None:
     docinfo = [options.title, options.author, options.keywords, options.subject]
     for s in (m for m in docinfo if m):
@@ -234,10 +220,10 @@ def _check_plugin_invariant_options(options: Namespace) -> None:
     check_platform()
     check_options_metadata(options)
     check_options_output(options)
+    set_lossless_reconstruction(options)
     check_options_sidecar(options)
     check_options_preprocessing(options)
     check_options_ocr_behavior(options)
-    check_options_advanced(options)
     check_options_pillow(options)
 
 
@@ -250,6 +236,18 @@ def _check_plugin_options(options: Namespace, plugin_manager: PluginManager) -> 
 def check_options(options: Namespace, plugin_manager: PluginManager) -> None:
     _check_plugin_invariant_options(options)
     _check_plugin_options(options, plugin_manager)
+
+
+def _in_docker():
+    return Path('/.dockerenv').exists()
+
+
+def _in_snap():
+    try:
+        cgroup_text = Path('/proc/self/cgroup').read_text()
+        return 'snap.ocrmypdf' in cgroup_text
+    except FileNotFoundError:
+        return False
 
 
 def create_input_file(options: Namespace, work_folder: Path) -> tuple[Path, str]:
@@ -275,14 +273,23 @@ def create_input_file(options: Namespace, work_folder: Path) -> tuple[Path, str]
             return target, os.fspath(options.input_file)
         except FileNotFoundError as e:
             msg = f"File not found - {options.input_file}"
-            if Path('/.dockerenv').exists():  # pragma: no cover
+            if _in_docker():  # pragma: no cover
                 msg += (
-                    "\nDocker cannot your working directory unless you "
+                    "\nDocker cannot access your working directory unless you "
                     "explicitly share it with the Docker container and set up"
                     "permissions correctly.\n"
                     "You may find it easier to use stdin/stdout:"
                     "\n"
                     "\tdocker run -i --rm jbarlow83/ocrmypdf - - <input.pdf >output.pdf"
+                    "\n"
+                )
+            elif _in_snap():  # pragma: no cover
+                msg += (
+                    "\nSnap applications cannot access files outside of "
+                    "your home directory unless you explicitly allow it. "
+                    "You may find it easier to use stdin/stdout:"
+                    "\n"
+                    "\tsnap run ocrmypdf - - <input.pdf >output.pdf"
                     "\n"
                 )
             raise InputFileError(msg) from e

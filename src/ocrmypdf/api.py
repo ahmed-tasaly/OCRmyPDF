@@ -9,25 +9,31 @@ import logging
 import os
 import sys
 import threading
+from argparse import Namespace
+from collections.abc import Iterable, Sequence
 from enum import IntEnum
 from io import IOBase
 from pathlib import Path
-from typing import AnyStr, BinaryIO, Iterable, Union
+from typing import AnyStr, BinaryIO
 from warnings import warn
 
-import coloredlogs
-from humanfriendly.terminal import enable_ansi_support
+import pluggy
 
-from ocrmypdf._logging import PageNumberFilter, TqdmConsole
+from ocrmypdf._logging import PageNumberFilter
+from ocrmypdf._pipelines.hocr_to_ocr_pdf import run_hocr_to_ocr_pdf_pipeline
+from ocrmypdf._pipelines.ocr import run_pipeline, run_pipeline_cli
+from ocrmypdf._pipelines.pdf_to_hocr import run_hocr_pipeline
 from ocrmypdf._plugin_manager import get_plugin_manager
-from ocrmypdf._sync import run_pipeline
 from ocrmypdf._validation import check_options
 from ocrmypdf.cli import ArgumentParser, get_parser
 from ocrmypdf.helpers import is_iterable_notstr
 
-StrPath = Union[Path, AnyStr]
-PathOrIO = Union[BinaryIO, StrPath]
+StrPath = Path | AnyStr
+PathOrIO = BinaryIO | StrPath
 
+# Installing plugins affects the global state of the Python interpreter,
+# so we need to use a lock to prevent multiple threads from installing
+# plugins at the same time.
 _api_lock = threading.Lock()
 
 
@@ -46,7 +52,7 @@ def configure_logging(
     *,
     progress_bar_friendly: bool = True,
     manage_root_logger: bool = False,
-    plugin_manager=None,
+    plugin_manager: pluggy.PluginManager | None = None,
 ):
     """Set up logging.
 
@@ -112,14 +118,7 @@ def configure_logging(
     else:
         fmt = '%(pageno)s%(message)s'
 
-    use_colors = progress_bar_friendly
     formatter = None
-    if use_colors:
-        use_colors = enable_ansi_support()
-        if use_colors:
-            use_colors = coloredlogs.terminal_supports_colors()
-        if use_colors:
-            formatter = coloredlogs.ColoredFormatter(fmt=fmt)
 
     if not formatter:
         formatter = logging.Formatter(fmt=fmt)
@@ -139,21 +138,19 @@ def configure_logging(
     return log
 
 
-def create_options(
-    *, input_file: PathOrIO, output_file: PathOrIO, parser: ArgumentParser, **kwargs
-):
-    """Construct an options object from the input/output files and keyword arguments."""
+def _kwargs_to_cmdline(
+    *, defer_kwargs: set[str], **kwargs
+) -> tuple[list[str], dict[str, AnyStr]]:
+    """Convert kwargs to command line arguments."""
     cmdline = []
-    deferred = []
-
+    deferred = {}
     for arg, val in kwargs.items():
         if val is None:
             continue
 
-        # These arguments with special handling for which we bypass
-        # argparse
-        if arg in {'progress_bar', 'plugins'}:
-            deferred.append((arg, val))
+        # Skip arguments that are handled elsewhere
+        if arg in defer_kwargs:
+            deferred[arg] = val
             continue
 
         cmd_style_arg = arg.replace('_', '-')
@@ -172,7 +169,7 @@ def create_options(
 
         # We have a parameter
         cmdline.append(f"--{cmd_style_arg}")
-        if isinstance(val, (int, float)):
+        if isinstance(val, int | float):
             cmdline.append(str(val))
         elif isinstance(val, str):
             cmdline.append(val)
@@ -180,19 +177,42 @@ def create_options(
             cmdline.append(str(val))
         else:
             raise TypeError(f"{arg}: {val} ({type(val)})")
+    return cmdline, deferred
 
-    if isinstance(input_file, (BinaryIO, IOBase)):
+
+def create_options(
+    *, input_file: PathOrIO, output_file: PathOrIO, parser: ArgumentParser, **kwargs
+) -> Namespace:
+    """Construct an options object from the input/output files and keyword arguments.
+
+    Args:
+        input_file: Input file path or file object.
+        output_file: Output file path or file object.
+        parser: ArgumentParser object.
+        **kwargs: Keyword arguments.
+
+    Returns:
+        argparse.Namespace: A Namespace object containing the parsed arguments.
+
+    Raises:
+        TypeError: If the type of a keyword argument is not supported.
+    """
+    cmdline, deferred = _kwargs_to_cmdline(
+        defer_kwargs={'progress_bar', 'plugins', 'parser', 'input_file', 'output_file'},
+        **kwargs,
+    )
+    if isinstance(input_file, BinaryIO | IOBase):
         cmdline.append('stream://input_file')
     else:
         cmdline.append(os.fspath(input_file))
-    if isinstance(output_file, (BinaryIO, IOBase)):
+    if isinstance(output_file, BinaryIO | IOBase):
         cmdline.append('stream://output_file')
     else:
         cmdline.append(os.fspath(output_file))
 
     parser.enable_api_mode()
     options = parser.parse_args(cmdline)
-    for keyword, val in deferred:
+    for keyword, val in deferred.items():
         setattr(options, keyword, val)
 
     if options.input_file == 'stream://input_file':
@@ -203,7 +223,7 @@ def create_options(
     return options
 
 
-def ocr(  # noqa: ruff: disable=D417
+def ocr(  # noqa: D417
     input_file: PathOrIO,
     output_file: PathOrIO,
     *,
@@ -234,6 +254,7 @@ def ocr(  # noqa: ruff: disable=D417
     png_quality: int | None = None,
     jbig2_lossy: bool | None = None,
     jbig2_page_group_size: int | None = None,
+    jbig2_threshold: float | None = None,
     pages: str | None = None,
     max_image_mpixels: float | None = None,
     tesseract_config: Iterable[str] | None = None,
@@ -243,12 +264,16 @@ def ocr(  # noqa: ruff: disable=D417
     pdf_renderer: str | None = None,
     tesseract_timeout: float | None = None,
     tesseract_non_ocr_timeout: float | None = None,
+    tesseract_downsample_above: int | None = None,
+    tesseract_downsample_large_images: bool | None = None,
     rotate_pages_threshold: float | None = None,
     pdfa_image_compression: str | None = None,
+    color_conversion_strategy: str | None = None,
     user_words: os.PathLike | None = None,
     user_patterns: os.PathLike | None = None,
     fast_web_view: float | None = None,
     continue_on_soft_render_error: bool | None = None,
+    invalidate_digital_signatures: bool | None = None,
     plugins: Iterable[StrPath] | None = None,
     plugin_manager=None,
     keep_temporary_files: bool | None = None,
@@ -318,23 +343,21 @@ def ocr(  # noqa: ruff: disable=D417
 
     if not plugins:
         plugins = []
-    elif isinstance(plugins, (str, Path)):
+    elif isinstance(plugins, str | Path):
         plugins = [plugins]
     else:
         plugins = list(plugins)
 
     # No new variable names should be assigned until these two steps are run
-    create_options_kwargs = {k: v for k, v in locals().items() if k != 'kwargs'}
+    create_options_kwargs = {
+        k: v
+        for k, v in locals().items()
+        if k not in {'input_file', 'output_file', 'kwargs'}
+    }
     create_options_kwargs.update(kwargs)
 
     parser = get_parser()
-    create_options_kwargs['parser'] = parser
-
     with _api_lock:
-        # We can't allow multiple ocrmypdf.ocr() threads to run in parallel, because
-        # they might install different plugins, and generally speaking we have areas
-        # of code that use global state.
-
         if not plugin_manager:
             plugin_manager = get_plugin_manager(plugins)
         plugin_manager.hook.add_options(parser=parser)  # pylint: disable=no-member
@@ -342,14 +365,181 @@ def ocr(  # noqa: ruff: disable=D417
         if 'verbose' in kwargs:
             warn("ocrmypdf.ocr(verbose=) is ignored. Use ocrmypdf.configure_logging().")
 
-        options = create_options(**create_options_kwargs)
+        options = create_options(
+            input_file=input_file,
+            output_file=output_file,
+            parser=parser,
+            **create_options_kwargs,
+        )
         check_options(options, plugin_manager)
-        return run_pipeline(options=options, plugin_manager=plugin_manager, api=True)
+        return run_pipeline(options=options, plugin_manager=plugin_manager)
+
+
+def _pdf_to_hocr(  # noqa: D417
+    input_pdf: Path,
+    output_folder: Path,
+    *,
+    language: Iterable[str] | None = None,
+    image_dpi: int | None = None,
+    jobs: int | None = None,
+    use_threads: bool | None = None,
+    title: str | None = None,
+    author: str | None = None,
+    subject: str | None = None,
+    keywords: str | None = None,
+    rotate_pages: bool | None = None,
+    remove_background: bool | None = None,
+    deskew: bool | None = None,
+    clean: bool | None = None,
+    clean_final: bool | None = None,
+    unpaper_args: str | None = None,
+    oversample: int | None = None,
+    remove_vectors: bool | None = None,
+    force_ocr: bool | None = None,
+    skip_text: bool | None = None,
+    redo_ocr: bool | None = None,
+    skip_big: float | None = None,
+    pages: str | None = None,
+    max_image_mpixels: float | None = None,
+    tesseract_config: Iterable[str] | None = None,
+    tesseract_pagesegmode: int | None = None,
+    tesseract_oem: int | None = None,
+    tesseract_thresholding: int | None = None,
+    tesseract_timeout: float | None = None,
+    tesseract_non_ocr_timeout: float | None = None,
+    tesseract_downsample_above: int | None = None,
+    tesseract_downsample_large_images: bool | None = None,
+    rotate_pages_threshold: float | None = None,
+    user_words: os.PathLike | None = None,
+    user_patterns: os.PathLike | None = None,
+    continue_on_soft_render_error: bool | None = None,
+    invalidate_digital_signatures: bool | None = None,
+    plugin_manager=None,
+    plugins: Sequence[StrPath] | None = None,
+    keep_temporary_files: bool | None = None,
+    **kwargs,
+):
+    """Partially run OCRmyPDF and produces an output folder containing hOCR files.
+
+    Given a PDF file, this function will run OCRmyPDF up to the point where
+    the PDF is rasterized to images, OCRed, and the hOCR files are produced,
+    all of which are saved to the output folder. This is useful for applications
+    that want to provide an interface for users to edit the text before
+    rendering the final PDF.
+
+    Use :func:`hocr_to_ocr_pdf` to produce the final PDF.
+
+    For arguments not explicitly documented here, see documentation for the
+    equivalent command line parameter.
+
+    This API is **experimental** and subject to change.
+
+    Args:
+        input_pdf: Input PDF file path.
+        output_folder: Output folder path.
+        **kwargs: Keyword arguments.
+    """
+    # No new variable names should be assigned until these two steps are run
+    create_options_kwargs = {
+        k: v
+        for k, v in locals().items()
+        if k not in {'input_pdf', 'output_folder', 'kwargs'}
+    }
+    create_options_kwargs.update(kwargs)
+
+    parser = get_parser()
+
+    with _api_lock:
+        if not plugin_manager:
+            plugin_manager = get_plugin_manager(plugins)
+        plugin_manager.hook.add_options(parser=parser)  # pylint: disable=no-member
+
+        cmdline, deferred = _kwargs_to_cmdline(
+            defer_kwargs={'input_pdf', 'output_folder', 'plugins'},
+            **create_options_kwargs,
+        )
+        cmdline.append(str(input_pdf))
+        cmdline.append(str(output_folder))
+        parser.enable_api_mode()
+        options = parser.parse_args(cmdline)
+        for keyword, val in deferred.items():
+            setattr(options, keyword, val)
+        delattr(options, 'output_file')
+        setattr(options, 'output_folder', output_folder)
+
+        return run_hocr_pipeline(options=options, plugin_manager=plugin_manager)
+
+
+def _hocr_to_ocr_pdf(  # noqa: D417
+    work_folder: Path,
+    output_file: Path,
+    *,
+    jobs: int | None = None,
+    use_threads: bool | None = None,
+    optimize: int | None = None,
+    jpg_quality: int | None = None,
+    png_quality: int | None = None,
+    jbig2_lossy: bool | None = None,
+    jbig2_page_group_size: int | None = None,
+    jbig2_threshold: float | None = None,
+    pdfa_image_compression: str | None = None,
+    color_conversion_strategy: str | None = None,
+    fast_web_view: float | None = None,
+    plugin_manager=None,
+    plugins: Sequence[StrPath] | None = None,
+    **kwargs,
+):
+    """Run OCRmyPDF on a work folder and produce an output PDF.
+
+    After running :func:`pdf_to_hocr`, this function will run OCRmyPDF on the work
+    folder to produce an output PDF. This function consolidates any changes made
+    to the hOCR files in the work folder and produces a final PDF.
+
+    For arguments not explicitly documented here, see documentation for the
+    equivalent command line parameter.
+
+    This API is **experimental** and subject to change.
+
+    Args:
+        work_folder: Work folder path, as generated by :func:`pdf_to_hocr`.
+        output_file: Output PDF file path.
+        **kwargs: Keyword arguments.
+    """
+    # No new variable names should be assigned until these two steps are run
+    create_options_kwargs = {
+        k: v
+        for k, v in locals().items()
+        if k not in {'work_folder', 'output_pdf', 'kwargs'}
+    }
+    create_options_kwargs.update(kwargs)
+
+    parser = get_parser()
+
+    with _api_lock:
+        if not plugin_manager:
+            plugin_manager = get_plugin_manager(plugins)
+        plugin_manager.hook.add_options(parser=parser)  # pylint: disable=no-member
+
+        cmdline, deferred = _kwargs_to_cmdline(
+            defer_kwargs={'work_folder', 'output_file', 'plugins'},
+            **create_options_kwargs,
+        )
+        cmdline.append(str(work_folder))
+        cmdline.append(str(output_file))
+        parser.enable_api_mode()
+        options = parser.parse_args(cmdline)
+        for keyword, val in deferred.items():
+            setattr(options, keyword, val)
+        delattr(options, 'input_file')
+        setattr(options, 'work_folder', work_folder)
+
+        return run_hocr_to_ocr_pdf_pipeline(
+            options=options, plugin_manager=plugin_manager
+        )
 
 
 __all__ = [
     'PageNumberFilter',
-    'TqdmConsole',
     'Verbosity',
     'check_options',
     'configure_logging',
@@ -358,4 +548,5 @@ __all__ = [
     'get_plugin_manager',
     'ocr',
     'run_pipeline',
+    'run_pipeline_cli',
 ]

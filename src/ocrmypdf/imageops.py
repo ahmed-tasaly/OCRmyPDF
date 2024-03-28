@@ -6,26 +6,9 @@
 from __future__ import annotations
 
 import logging
-from functools import singledispatch
 from math import floor, sqrt
-from typing import Optional, Tuple
 
 from PIL import Image
-
-# Remove this workaround when we require Pillow >= 9.1.0
-try:
-    Resampling = Image.Resampling  # type: ignore
-except AttributeError:
-    # Pillow 9 shim
-    Resampling = Image  # type: ignore
-
-
-# While from __future__ import annotations, we use singledispatch here, which
-# does not support annotations. Disable check about using old-style typing
-# until Python 3.10, OR when drop singledispatch in ocrmypdf 15.
-# ruff: noqa: UP006
-# ruff: noqa: UP007
-
 
 log = logging.getLogger(__name__)
 
@@ -43,15 +26,14 @@ def bytes_per_pixel(mode: str) -> int:
     return 4
 
 
-@singledispatch
-def calculate_downsample(
-    image_size: Tuple[int, int],
+def _calculate_downsample(
+    image_size: tuple[int, int],
     bytes_per_pixel: int,
     *,
-    max_size: Optional[Tuple[int, int]] = None,
-    max_pixels: Optional[int] = None,
-    max_bytes: Optional[int] = None,
-) -> Tuple[int, int]:
+    max_size: tuple[int, int] | None = None,
+    max_pixels: int | None = None,
+    max_bytes: int | None = None,
+) -> tuple[int, int]:
     """Calculate image size required to downsample an image to fit limits.
 
     If no limit is exceeded, the input image's size is returned.
@@ -105,15 +87,13 @@ def calculate_downsample(
     return size
 
 
-@calculate_downsample.register
-def _(
+def calculate_downsample(
     image: Image.Image,
-    arg: None = None,
     *,
-    max_size: Optional[Tuple[int, int]] = None,
-    max_pixels: Optional[int] = None,
-    max_bytes: Optional[int] = None,
-) -> Tuple[int, int]:
+    max_size: tuple[int, int] | None = None,
+    max_pixels: int | None = None,
+    max_bytes: int | None = None,
+) -> tuple[int, int]:
     """Calculate image size required to downsample an image to fit limits.
 
     If no limit is exceeded, the input image's size is returned.
@@ -126,7 +106,7 @@ def _(
         max_bytes: The maximum number of bytes in the image. RGB is counted as 4
             bytes; all other modes are counted as 1 byte.
     """
-    return calculate_downsample(
+    return _calculate_downsample(
         image.size,
         bytes_per_pixel(image.mode),
         max_size=max_size,
@@ -139,7 +119,7 @@ def downsample_image(
     image: Image.Image,
     new_size: tuple[int, int],
     *,
-    resample_mode: Image.Resampling = Resampling.BICUBIC,
+    resample_mode: Image.Resampling = Image.Resampling.BICUBIC,
     reducing_gap: int = 3,
 ) -> Image.Image:
     """Downsample an image to fit within the given limits.

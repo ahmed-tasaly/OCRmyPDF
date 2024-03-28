@@ -30,7 +30,7 @@ def add_options(parser):
         action='append',
         metavar='CFG',
         default=[],
-        help="Additional Tesseract configuration files -- see documentation",
+        help="Additional Tesseract configuration files -- see documentation.",
     )
     tess.add_argument(
         '--tesseract-pagesegmode',
@@ -38,7 +38,7 @@ def add_options(parser):
         type=int,
         metavar='PSM',
         choices=range(0, 14),
-        help="Set Tesseract page segmentation mode (see tesseract --help)",
+        help="Set Tesseract page segmentation mode (see tesseract --help).",
     )
     tess.add_argument(
         '--tesseract-oem',
@@ -75,7 +75,10 @@ def add_options(parser):
         metavar='SECONDS',
         help=(
             "Give up on OCR after the timeout, but copy the preprocessed page "
-            "into the final output."
+            "into the final output. This timeout is only used when using Tesseract "
+            "for OCR. When Tesseract is used for other operations such as "
+            "deskewing and orientation, the timeout is controlled by "
+            "--tesseract-non-ocr-timeout."
         ),
     )
     tess.add_argument(
@@ -137,13 +140,17 @@ def check_options(options):
         program='tesseract',
         package={'linux': 'tesseract-ocr'},
         version_checker=tesseract.version,
-        need_version='4.1.1',  # Ubuntu 20.04 version
+        need_version='4.1.1',  # Ubuntu 22.04 version (also 20.04)
         version_parser=tesseract.TesseractVersion,
     )
 
     # Decide on what renderer to use
     if options.pdf_renderer == 'auto':
-        options.pdf_renderer = 'sandwich'
+        if {'ara', 'heb', 'fas', 'per'} & set(options.languages):
+            log.info("Using sandwich renderer since there is an RTL language")
+            options.pdf_renderer = 'sandwich'
+        else:
+            options.pdf_renderer = 'hocr'
 
     if not tesseract.has_thresholding() and options.tesseract_thresholding != 0:
         log.warning(
@@ -175,6 +182,15 @@ def validate(pdfinfo, options):
         tess_threads = int(os.environ['OMP_THREAD_LIMIT'])
     log.debug("Using Tesseract OpenMP thread limit %d", tess_threads)
 
+    if (
+        options.tesseract_downsample_above != 32767
+        and not options.tesseract_downsample_large_images
+    ):
+        log.warning(
+            "The --tesseract-downsample-above argument will have no effect unless "
+            "--tesseract-downsample-large-images is also given."
+        )
+
 
 @hookimpl
 def filter_ocr_image(page: PageContext, image: Image.Image) -> Image.Image:
@@ -200,11 +216,11 @@ class TesseractOcrEngine(OcrEngine):
 
     @staticmethod
     def version():
-        return tesseract.version()
+        return str(tesseract.version())
 
     @staticmethod
     def creator_tag(options):
-        tag = '-PDF' if options.pdf_renderer == 'sandwich' else ''
+        tag = '-PDF' if options.pdf_renderer == 'sandwich' else '-hOCR'
         return f"Tesseract OCR{tag} {TesseractOcrEngine.version()}"
 
     def __str__(self):

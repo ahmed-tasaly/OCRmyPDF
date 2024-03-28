@@ -12,19 +12,23 @@ import queue
 import signal
 import sys
 import threading
+from collections.abc import Callable, Iterable
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from contextlib import suppress
-from typing import Callable, Iterable, Type, Union
+from typing import Union
 
-from tqdm import tqdm
+from rich.console import Console as RichConsole
 
 from ocrmypdf import Executor, hookimpl
-from ocrmypdf._logging import TqdmConsole
+from ocrmypdf._logging import RichLoggingHandler
+from ocrmypdf._progressbar import RichProgressBar
 from ocrmypdf.exceptions import InputFileError
 from ocrmypdf.helpers import remove_all_log_handlers
 
-FuturesExecutorClass = Union[Type[ThreadPoolExecutor], Type[ProcessPoolExecutor]]
-Queue = Union[multiprocessing.Queue, queue.Queue]
+FuturesExecutorClass = Union[  # noqa: UP007
+    type[ThreadPoolExecutor], type[ProcessPoolExecutor]
+]
+Queue = Union[multiprocessing.Queue, queue.Queue]  # noqa: UP007
 UserInit = Callable[[], None]
 WorkerInit = Callable[[Queue, UserInit, int], None]
 
@@ -68,7 +72,7 @@ def process_init(q: Queue, user_init: UserInit, loglevel) -> None:
         # Windows and Cygwin do not have pthread_sigmask or SIGBUS
         signal.signal(signal.SIGBUS, process_sigbus)
 
-    # Remove any log handlers that belong to the parent process
+    # Remove any log handlers inherited from the parent process
     root = logging.getLogger()
     remove_all_log_handlers(root)
 
@@ -95,21 +99,12 @@ def thread_init(q: Queue, user_init: UserInit, loglevel) -> None:
 class StandardExecutor(Executor):
     """Standard OCRmyPDF concurrent task executor."""
 
-    def _cancel_futures_kwargs(self):
-        """Shim older Pythons that do not have Executor.shutdown(...cancel_futures=).
-
-        Remove this code when support for Python 3.8 is dropped.
-        """
-        if sys.version_info[:2] < (3, 9):
-            return {}
-        return dict(cancel_futures=True)
-
     def _execute(
         self,
         *,
         use_threads: bool,
         max_workers: int,
-        tqdm_kwargs: dict,
+        progress_kwargs: dict,
         worker_initializer: Callable,
         task: Callable,
         task_arguments: Iterable,
@@ -127,22 +122,30 @@ class StandardExecutor(Executor):
         # Regardless of whether we use_threads for worker processes, the log_listener
         # must be a thread. Make sure we create the listener after the worker pool,
         # so that it does not get forked into the workers.
+        # If use_threads is False, we are currently guilty of creating a thread before
+        # forking on Linux, which is not recommended. However, we take a big
+        # performance hit in pdfinfo if we can't fork. Long term solution is to
+        # replace most of this with an asyncio implementation, and probably to
+        # migrate some of pdfinfo into C++ or Rust.
         listener = threading.Thread(target=log_listener, args=(log_queue,))
         listener.start()
 
-        with self.pbar_class(**tqdm_kwargs) as pbar, executor_class(
-            max_workers=max_workers,
-            initializer=initializer,
-            initargs=(log_queue, worker_initializer, logging.getLogger("").level),
-        ) as executor:
-            futures = [executor.submit(task, args) for args in task_arguments]
+        with (
+            self.pbar_class(**progress_kwargs) as pbar,
+            executor_class(
+                max_workers=max_workers,
+                initializer=initializer,
+                initargs=(log_queue, worker_initializer, logging.getLogger("").level),
+            ) as executor,
+        ):
+            futures = [executor.submit(task, *args) for args in task_arguments]
             try:
                 for future in as_completed(futures):
                     result = future.result()
                     task_finished(result, pbar)
             except KeyboardInterrupt:
                 # Terminate pool so we exit instantly
-                executor.shutdown(wait=False, **self._cancel_futures_kwargs())
+                executor.shutdown(wait=False, cancel_futures=True)
                 raise
             except Exception:
                 if not os.environ.get("PYTEST_CURRENT_TEST", ""):
@@ -151,7 +154,7 @@ class StandardExecutor(Executor):
                     # results will be discard. But if the condition above is True,
                     # then we are running in pytest, and we want everything to exit
                     # as cleanly as possible so that we get good error messages.
-                    executor.shutdown(wait=False, **self._cancel_futures_kwargs())
+                    executor.shutdown(wait=False, cancel_futures=True)
                 raise
             finally:
                 # Terminate log listener
@@ -168,13 +171,20 @@ def get_executor(progressbar_class):
     return StandardExecutor(pbar_class=progressbar_class)
 
 
+RICH_CONSOLE = RichConsole(stderr=True)
+
+
 @hookimpl
 def get_progressbar_class():
     """Return the default progress bar class."""
-    return tqdm
+
+    def partial_RichProgressBar(*args, **kwargs):
+        return RichProgressBar(*args, **kwargs, console=RICH_CONSOLE)
+
+    return partial_RichProgressBar
 
 
 @hookimpl
 def get_logging_console():
     """Return the default logging console handler."""
-    return logging.StreamHandler(stream=TqdmConsole(sys.stderr))
+    return RichLoggingHandler(console=RICH_CONSOLE)

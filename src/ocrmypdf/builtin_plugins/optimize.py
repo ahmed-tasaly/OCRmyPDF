@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from ocrmypdf import Executor, PdfContext, hookimpl
 from ocrmypdf._exec import jbig2enc, pngquant
@@ -86,6 +86,16 @@ def add_options(parser):
         # Adjust number of pages to consider at once for JBIG2 compression
         help=argparse.SUPPRESS,
     )
+    optimizing.add_argument(
+        '--jbig2-threshold',
+        type=numeric(float, 0.4, 0.9),
+        default=0.85,
+        metavar='T',
+        help=(
+            "Adjust JBIG2 symbol code classification threshold "
+            "(default 0.85), range 0.4 to 0.9."
+        ),
+    )
 
 
 @hookimpl
@@ -95,7 +105,7 @@ def check_options(options):
             program='pngquant',
             package='pngquant',
             version_checker=pngquant.version,
-            need_version='2.0.1',
+            need_version='2.12.2',
             required_for='--optimize {2,3}',
         )
 

@@ -9,31 +9,38 @@ from __future__ import annotations
 import atexit
 import logging
 import re
+import statistics
 from collections import defaultdict
-from contextlib import ExitStack
+from collections.abc import Callable, Container, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from decimal import Decimal
 from enum import Enum, auto
 from functools import partial
 from math import hypot, inf, isclose
 from os import PathLike
 from pathlib import Path
-from typing import Container, Iterable, Iterator, Mapping, NamedTuple, Sequence, Tuple
+from typing import NamedTuple
 from warnings import warn
 
+from pdfminer.layout import LTPage, LTTextBox
 from pikepdf import (
+    Matrix,
+    Name,
     Object,
+    Page,
     Pdf,
     PdfImage,
     PdfInlineImage,
-    PdfMatrix,
+    Stream,
     UnsupportedImageTypeError,
     parse_content_stream,
 )
 
 from ocrmypdf._concurrent import Executor, SerialExecutor
+from ocrmypdf._progressbar import ProgressBar
 from ocrmypdf.exceptions import EncryptedPdfError, InputFileError
 from ocrmypdf.helpers import Resolution, available_cpu_count, pikepdf_enable_mmap
-from ocrmypdf.pdfinfo.layout import get_page_analysis, get_text_boxes
+from ocrmypdf.pdfinfo.layout import LTStateAwareChar, get_page_analysis, get_text_boxes
 
 logger = logging.getLogger()
 
@@ -69,7 +76,7 @@ class Encoding(Enum):
     runlength = auto()
 
 
-FloatRect = Tuple[float, float, float, float]
+FloatRect = tuple[float, float, float, float]
 
 FRIENDLY_COLORSPACE: dict[str, Colorspace] = {
     '/DeviceGray': Colorspace.gray,
@@ -201,7 +208,7 @@ def _interpret_contents(contentstream: Object, initial_shorthand=UNIT_SQUARE):
     CTM unchanged.
     """
     stack = []
-    ctm = PdfMatrix(initial_shorthand)
+    ctm = Matrix(initial_shorthand)
     xobject_settings: list[XobjectSettings] = []
     inline_images: list[InlineSettings] = []
     name_index = defaultdict(lambda: [])
@@ -232,7 +239,7 @@ def _interpret_contents(contentstream: Object, initial_shorthand=UNIT_SQUARE):
                 # to do. Just pretend nothing happened, keep calm and carry on.
                 warn("PDF graphics stack underflowed - PDF may be malformed")
         elif operator == 'cm':
-            ctm = PdfMatrix(operands) @ ctm
+            ctm = Matrix(operands) @ ctm
         elif operator == 'Do':
             image_name = operands[0]
             settings = XobjectSettings(
@@ -351,7 +358,7 @@ class ImageInfo:
         if inline is not None:
             self._origin = 'inline'
             pim = inline
-        elif pdfimage is not None:
+        elif pdfimage is not None and isinstance(pdfimage, Stream):
             self._origin = 'xobject'
             pim = PdfImage(pdfimage)
         else:
@@ -380,32 +387,42 @@ class ImageInfo:
         if self._enc == Encoding.jpeg2000:
             self._color = Colorspace.jpeg2000
 
-        if self._color == Colorspace.icc:
-            # Check the ICC profile to determine actual colorspace
-            try:
-                pim_icc = pim.icc
-                if pim_icc.profile.xcolor_space == 'GRAY':
-                    self._comp = 1
-                elif pim_icc.profile.xcolor_space == 'CMYK':
-                    self._comp = 4
-                else:
-                    self._comp = 3
-            except (AttributeError, UnsupportedImageTypeError) as ex:
-                self._comp = None
-                logger.warning(
-                    f"An image with a corrupt or unreadable ICC profile was found. "
-                    f"The output PDF may not match the input PDF visually: {ex}. {self}"
-                )
+        self._comp = None
+        if self._color == Colorspace.icc and isinstance(pim, PdfImage):
+            self._comp = self._init_icc(pim)
         else:
             if isinstance(self._color, Colorspace):
                 self._comp = FRIENDLY_COMP.get(self._color)
-            else:
-                self._comp = None
-
             # Bit of a hack... infer grayscale if component count is uncertain
             # but encoding only supports monochrome.
             if self._comp is None and self._enc in (Encoding.ccitt, Encoding.jbig2):
                 self._comp = FRIENDLY_COMP[Colorspace.gray]
+
+    def _init_icc(self, pim: PdfImage):
+        try:
+            icc = pim.icc
+        except UnsupportedImageTypeError as e:
+            logger.warning(
+                f"An image with a corrupt or unreadable ICC profile was found. "
+                f"Output PDF may not match the input PDF visually: {e}. {self}"
+            )
+            return None
+        # Check the ICC profile to determine actual colorspace
+        if icc is None or not hasattr(icc, 'profile'):
+            logger.warning(
+                f"An image with an ICC profile but no ICC profile data was found. "
+                f"The output PDF may not match the input PDF visually. {self}"
+            )
+            return None
+        try:
+            if icc.profile.xcolor_space == 'GRAY':
+                return 1
+            elif icc.profile.xcolor_space == 'CMYK':
+                return 4
+            else:
+                return 3
+        except AttributeError:
+            return None
 
     @property
     def name(self):
@@ -418,12 +435,12 @@ class ImageInfo:
         return self._type
 
     @property
-    def width(self):
+    def width(self) -> int:
         """Width of the image in pixels."""
         return self._width
 
     @property
-    def height(self):
+    def height(self) -> int:
         """Height of the image in pixels."""
         return self._height
 
@@ -456,17 +473,24 @@ class ImageInfo:
         return self.dpi.is_finite and self.width >= 0 and self.height >= 0
 
     @property
-    def dpi(self):
+    def dpi(self) -> Resolution:
         """Dots per inch of the image.
 
         Calculated based on where and how the image is drawn in the PDF.
         """
         return _get_dpi(self._shorthand, (self._width, self._height))
 
+    @property
+    def printed_area(self) -> float:
+        """Physical area of the image in square inches."""
+        if not self.renderable:
+            return 0.0
+        return float(self.width * self.dpi.x * self.height * self.dpi.y)
+
     def __repr__(self):
         """Return a string representation of the image."""
         return (
-            f"<ImageInfo '{self.name}' {self.type_} {self.width}x{self.height} "
+            f"<ImageInfo '{self.name}' {self.type_} {self.width}×{self.height} "
             f"{self.color} {self.comp} {self.bpc} {self.enc} {self.dpi}>"
         )
 
@@ -491,15 +515,15 @@ def _image_xobjects(container) -> Iterator[tuple[Object, str]]:
     since the object does not know its own name.
 
     """
-    if '/Resources' not in container:
+    if Name.Resources not in container:
         return
-    resources = container['/Resources']
-    if '/XObject' not in resources:
+    resources = container[Name.Resources]
+    if Name.XObject not in resources:
         return
-    for key, candidate in resources['/XObject'].items():
-        if candidate is None or '/Subtype' not in candidate:
+    for key, candidate in resources[Name.XObject].items():
+        if candidate is None or Name.Subtype not in candidate:
             continue
-        if candidate['/Subtype'] == '/Image':
+        if candidate[Name.Subtype] == Name.Image:
             pdfimage = candidate
             yield (pdfimage, key)
 
@@ -535,15 +559,15 @@ def _find_form_xobject_images(pdf: Pdf, container: Object, contentsinfo: Content
     The container may be a page, or a parent Form XObject.
 
     """
-    if '/Resources' not in container:
+    if Name.Resources not in container:
         return
-    resources = container['/Resources']
-    if '/XObject' not in resources:
+    resources = container[Name.Resources]
+    if Name.XObject not in resources:
         return
-    xobjs = resources['/XObject'].as_dict()
+    xobjs = resources[Name.XObject].as_dict()
     for xobj in xobjs:
         candidate = xobjs[xobj]
-        if candidate is None or candidate['/Subtype'] != '/Form':
+        if candidate is None or candidate[Name.Subtype] != Name.Form:
             continue
 
         form_xobject = candidate
@@ -581,17 +605,20 @@ def _process_content_streams(
     downsampling.
 
     """
-    if container.get('/Type') == '/Page' and '/Contents' in container:
+    if container.get(Name.Type) == Name.Page and Name.Contents in container:
         initial_shorthand = shorthand or UNIT_SQUARE
-    elif container.get('/Type') == '/XObject' and container['/Subtype'] == '/Form':
+    elif (
+        container.get(Name.Type) == Name.XObject
+        and container[Name.Subtype] == Name.Form
+    ):
         # Set the CTM to the state it was when the "Do" operator was
         # encountered that is drawing this instance of the Form XObject
-        ctm = PdfMatrix(shorthand) if shorthand else PdfMatrix.identity()
+        ctm = Matrix(shorthand) if shorthand else Matrix()
 
         # A Form XObject may provide its own matrix to map form space into
         # user space. Get this if one exists
-        form_shorthand = container.get('/Matrix', PdfMatrix.identity())
-        form_matrix = PdfMatrix(form_shorthand)
+        form_shorthand = container.get(Name.Matrix, Matrix())
+        form_matrix = Matrix(form_shorthand)
 
         # Concatenate form matrix with CTM to ensure CTM is correct for
         # drawing this instance of the XObject
@@ -640,7 +667,9 @@ def _page_has_text(text_blocks: Iterable[FloatRect], page_width, page_height) ->
     return has_text
 
 
-def simplify_textboxes(miner, textbox_getter) -> Iterator[TextboxInfo]:
+def simplify_textboxes(
+    miner: LTPage, textbox_getter: Callable[[LTPage], Iterator[LTTextBox]]
+) -> Iterator[TextboxInfo]:
     """Extract only limited content from text boxes.
 
     We do this to save memory and ensure that our objects are pickleable.
@@ -648,7 +677,8 @@ def simplify_textboxes(miner, textbox_getter) -> Iterator[TextboxInfo]:
     for box in textbox_getter(miner):
         first_line = box._objs[0]  # pylint: disable=protected-access
         first_char = first_line._objs[0]  # pylint: disable=protected-access
-
+        if not isinstance(first_char, LTStateAwareChar):
+            continue
         visible = first_char.rendermode != 3
         corrupt = first_char.get_text() == '\ufffd'
         yield TextboxInfo(box.bbox, visible, corrupt)
@@ -674,29 +704,41 @@ def _pdf_pageinfo_sync_init(pdf: Pdf, infile: Path, pdfminer_loglevel):
         atexit.register(on_process_close)
 
 
-def _pdf_pageinfo_sync(args):
-    pageno, thread_pdf, infile, check_pages, detailed_analysis = args
-    pdf = thread_pdf if thread_pdf is not None else worker_pdf
-    with ExitStack() as stack:
-        if not pdf:  # When called with SerialExecutor
-            pdf = stack.enter_context(Pdf.open(infile))
-        page = PageInfo(pdf, pageno, infile, check_pages, detailed_analysis)
-        return page
+@contextmanager
+def _pdf_pageinfo_sync_pdf(thread_pdf: Pdf | None, infile: Path):
+    if thread_pdf is not None:
+        yield thread_pdf
+    elif worker_pdf is not None:
+        yield worker_pdf
+    else:
+        with Pdf.open(infile) as pdf:
+            yield pdf
+
+
+def _pdf_pageinfo_sync(
+    pageno: int,
+    thread_pdf: Pdf | None,
+    infile: Path,
+    check_pages: Container[int],
+    detailed_analysis: bool,
+) -> PageInfo:
+    with _pdf_pageinfo_sync_pdf(thread_pdf, infile) as pdf:
+        return PageInfo(pdf, pageno, infile, check_pages, detailed_analysis)
 
 
 def _pdf_pageinfo_concurrent(
     pdf,
     executor: Executor,
+    max_workers: int,
+    use_threads: bool,
     infile,
     progbar,
-    max_workers,
     check_pages,
-    detailed_analysis=False,
+    detailed_analysis: bool = False,
 ) -> Sequence[PageInfo | None]:
-    pages: Sequence[PageInfo | None] = [None] * len(pdf.pages)
+    pages: list[PageInfo | None] = [None] * len(pdf.pages)
 
-    def update_pageinfo(result, pbar):
-        page = result
+    def update_pageinfo(page: PageInfo, pbar: ProgressBar):
         if not page:
             raise InputFileError("Could read a page in the PDF")
         pages[page.pageno] = page
@@ -707,12 +749,16 @@ def _pdf_pageinfo_concurrent(
 
     total = len(pdf.pages)
 
-    use_threads = False  # No performance gain if threaded due to GIL
     n_workers = min(1 + len(pages) // 4, max_workers)
     if n_workers == 1:
-        # But if we decided on only one worker, there is no point in using
+        # If we decided on only one worker, there is no point in using
         # a separate process.
         use_threads = True
+
+    if use_threads and n_workers > 1:
+        # If we are using threads, there is no point in using more than one
+        # worker thread - they will just fight over the GIL.
+        n_workers = 1
 
     # If we use a thread, we can pass the already-open Pdf for them to use
     # If we use processes, we pass a None which tells the init function to open its
@@ -723,10 +769,15 @@ def _pdf_pageinfo_concurrent(
         (n, initial_pdf, infile, check_pages, detailed_analysis) for n in range(total)
     )
     assert n_workers == 1 if use_threads else n_workers >= 1, "Not multithreadable"
+    logger.debug(
+        f"Gathering info with {n_workers} "
+        + ('thread' if use_threads else 'process')
+        + " workers"
+    )
     executor(
         use_threads=use_threads,
         max_workers=n_workers,
-        tqdm_kwargs=dict(
+        progress_kwargs=dict(
             total=total, desc="Scanning contents", unit='page', disable=not progbar
         ),
         worker_initializer=partial(
@@ -742,12 +793,38 @@ def _pdf_pageinfo_concurrent(
     return pages
 
 
+class PageResolutionProfile(NamedTuple):
+    """Information about the resolutions of a page."""
+
+    weighted_dpi: float
+    """The weighted average DPI of the page, weighted by the area of each image."""
+
+    max_dpi: float
+    """The maximum DPI of an image on the page."""
+
+    average_to_max_dpi_ratio: float
+    """The average DPI of the page divided by the maximum DPI of the page.
+
+    This indicates the intensity of the resolution variation on the page.
+
+    If the average is 1.0 or close to 1.0, has all of its content at a uniform
+    resolution. If the average is much lower than 1.0, some content is at a
+    higher resolution than the rest of the page.
+    """
+
+    area_ratio: float
+    """The maximum-DPI area of the page divided by the total drawn area.
+
+    This indicates the prevalence of high-resolution content on the page.
+    """
+
+
 class PageInfo:
     """Information about type of contents on each page in a PDF."""
 
     _has_text: bool | None
     _has_vector: bool | None
-    _images: list[ImageInfo]
+    _images: list[ImageInfo] = []
 
     def __init__(
         self,
@@ -771,17 +848,26 @@ class PageInfo:
         check_pages: Container[int],
         detailed_analysis: bool,
     ):
-        page = pdf.pages[pageno]
-        mediabox = [Decimal(d) for d in page.MediaBox.as_list()]
+        page: Page = pdf.pages[pageno]
+        mediabox = [Decimal(d) for d in page.mediabox.as_list()]
         width_pt = mediabox[2] - mediabox[0]
         height_pt = mediabox[3] - mediabox[1]
+
+        # self._artbox = [float(d) for d in page.artbox.as_list()]
+        # self._bleedbox = [float(d) for d in page.bleedbox.as_list()]
+        self._cropbox = [float(d) for d in page.cropbox.as_list()]
+        self._mediabox = [float(d) for d in page.mediabox.as_list()]
+        self._trimbox = [float(d) for d in page.trimbox.as_list()]
 
         check_this_page = pageno in check_pages
 
         if check_this_page and detailed_analysis:
-            pscript5_mode = str(pdf.docinfo.get('/Creator')).startswith('PScript5')
+            pscript5_mode = str(pdf.docinfo.get(Name.Creator)).startswith('PScript5')
             miner = get_page_analysis(infile, pageno, pscript5_mode)
-            self._textboxes = list(simplify_textboxes(miner, get_text_boxes))
+            if miner is not None:
+                self._textboxes = list(simplify_textboxes(miner, get_text_boxes))
+            else:
+                self._textboxes = []
             bboxes = (box.bbox for box in self._textboxes)
 
             self._has_text = _page_has_text(bboxes, width_pt, height_pt)
@@ -789,17 +875,13 @@ class PageInfo:
             self._textboxes = []
             self._has_text = None  # i.e. "no information"
 
-        userunit = page.get('/UserUnit', Decimal(1.0))
+        userunit = page.get(Name.UserUnit, Decimal(1.0))
         if not isinstance(userunit, Decimal):
             userunit = Decimal(userunit)
         self._userunit = userunit
         self._width_inches = width_pt * userunit / Decimal(72.0)
         self._height_inches = height_pt * userunit / Decimal(72.0)
-
-        try:
-            self._rotate = int(page['/Rotate'])
-        except KeyError:
-            self._rotate = 0
+        self._rotate = int(getattr(page.obj, 'Rotate', 0))
 
         userunit_shorthand = (userunit, 0, 0, userunit, 0, 0)
 
@@ -894,6 +976,21 @@ class PageInfo:
             raise ValueError("rotation must be a cardinal angle")
 
     @property
+    def cropbox(self) -> FloatRect:
+        """Return cropbox of page in PDF coordinates."""
+        return self._cropbox
+
+    @property
+    def mediabox(self) -> FloatRect:
+        """Return mediabox of page in PDF coordinates."""
+        return self._mediabox
+
+    @property
+    def trimbox(self) -> FloatRect:
+        """Return trimbox of page in PDF coordinates."""
+        return self._trimbox
+
+    @property
     def images(self) -> list[ImageInfo]:
         """Return images."""
         return self._images
@@ -901,7 +998,9 @@ class PageInfo:
     def get_textareas(self, visible: bool | None = None, corrupt: bool | None = None):
         """Return textareas bounding boxes in PDF coordinates on the page."""
 
-        def predicate(obj, want_visible, want_corrupt):
+        def predicate(
+            obj: TextboxInfo, want_visible: bool | None, want_corrupt: bool | None
+        ) -> bool:
             result = True
             if want_visible is not None:
                 if obj.is_visible != want_visible:
@@ -938,6 +1037,42 @@ class PageInfo:
         else:
             return '1.5'
 
+    def page_dpi_profile(self) -> PageResolutionProfile | None:
+        """Return information about the DPIs of the page.
+
+        This is useful to detect pages with a small proportion of high-resolution
+        content that is forcing us to use a high DPI for the whole page. The ratio
+        is weighted by the area of each image. If images overlap, the overlapped
+        area counts.
+
+        Vector graphics and text are ignored.
+
+        Returns None if there is no meaningful DPI for the page.
+        """
+        image_dpis = [
+            image.dpi.to_scalar() for image in self._images if image.renderable
+        ]
+        image_areas = [image.printed_area for image in self._images if image.renderable]
+        total_drawn_area = sum(image_areas)
+        if total_drawn_area == 0:
+            return None
+
+        weights = [area / total_drawn_area for area in image_areas]
+        # Calculate harmonic mean of DPIs weighted by area
+        weighted_dpi = statistics.harmonic_mean(image_dpis, weights)
+        max_dpi = max(image_dpis)
+        dpi_average_max_ratio = weighted_dpi / max_dpi
+
+        arg_max_dpi = image_dpis.index(max_dpi)
+        max_area_ratio = image_areas[arg_max_dpi] / total_drawn_area
+
+        return PageResolutionProfile(
+            weighted_dpi,
+            max_dpi,
+            dpi_average_max_ratio,
+            max_area_ratio,
+        )
+
     def __repr__(self):
         """Return string representation."""
         return (
@@ -951,15 +1086,24 @@ DEFAULT_EXECUTOR = SerialExecutor()
 
 
 class PdfInfo:
-    """Get summary information about a PDF."""
+    """Extract summary information about a PDF without retaining the PDF itself.
+
+    Crucially this lets us get the information in a pure Python format so that
+    it can be pickled and passed to a worker process.
+    """
+
+    _has_acroform: bool = False
+    _has_signature: bool = False
+    _needs_rendering: bool = False
 
     def __init__(
         self,
-        infile,
+        infile: Path,
         *,
         detailed_analysis: bool = False,
         progbar: bool = False,
         max_workers: int | None = None,
+        use_threads: bool = True,
         check_pages=None,
         executor: Executor = DEFAULT_EXECUTOR,
     ):
@@ -974,19 +1118,23 @@ class PdfInfo:
             self._pages = _pdf_pageinfo_concurrent(
                 pdf,
                 executor,
+                max_workers,
+                use_threads,
                 infile,
                 progbar,
-                max_workers,
                 check_pages=check_pages,
                 detailed_analysis=detailed_analysis,
             )
-            self._needs_rendering = pdf.Root.get('/NeedsRendering', False)
-            self._has_acroform = False
-            if '/AcroForm' in pdf.Root:
-                if len(pdf.Root.AcroForm.get('/Fields', [])) > 0:
+            self._needs_rendering = pdf.Root.get(Name.NeedsRendering, False)
+            if Name.AcroForm in pdf.Root:
+                if len(pdf.Root.AcroForm.get(Name.Fields, [])) > 0:
                     self._has_acroform = True
-                elif '/XFA' in pdf.Root.AcroForm:
+                elif Name.XFA in pdf.Root.AcroForm:
                     self._has_acroform = True
+                self._has_signature = bool(pdf.Root.AcroForm.get(Name.SigFlags, 0) & 1)
+            self._is_tagged = bool(
+                pdf.Root.get(Name.MarkInfo, {}).get(Name.Marked, False)
+            )
 
     @property
     def pages(self) -> Sequence[PageInfo | None]:
@@ -1006,13 +1154,23 @@ class PdfInfo:
 
     @property
     def has_acroform(self) -> bool:
-        """Return True if any page has an AcroForm."""
+        """Return True if the document catalog has an AcroForm."""
         return self._has_acroform
+
+    @property
+    def has_signature(self) -> bool:
+        """Return True if the document annotations has a digital signature."""
+        return self._has_signature
+
+    @property
+    def is_tagged(self) -> bool:
+        """Return True if the document catalog indicates this is a Tagged PDF."""
+        return self._is_tagged
 
     @property
     def filename(self) -> str | Path:
         """Return filename of PDF."""
-        if not isinstance(self._infile, (str, Path)):
+        if not isinstance(self._infile, str | Path):
             raise NotImplementedError("can't get filename from stream")
         return self._infile
 
@@ -1038,7 +1196,7 @@ class PdfInfo:
         return f"<PdfInfo('...'), page count={len(self)}>"
 
 
-def main():
+def main():  # pragma: no cover
     """Run as a script."""
     import argparse  # pylint: disable=import-outside-toplevel
     from pprint import pprint  # pylint: disable=import-outside-toplevel

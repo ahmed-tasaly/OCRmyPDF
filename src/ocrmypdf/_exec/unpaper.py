@@ -8,46 +8,26 @@ from __future__ import annotations
 import logging
 import os
 import shlex
-import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 from subprocess import PIPE, STDOUT
-from typing import Iterator, Union
+from tempfile import TemporaryDirectory
 
+from packaging.version import Version
 from PIL import Image
 
-from ocrmypdf.exceptions import MissingDependencyError, SubprocessOutputError
+from ocrmypdf.exceptions import SubprocessOutputError
 from ocrmypdf.subprocess import get_version, run
 
 # unpaper documentation:
-# https://github.com/Flameeyes/unpaper/blob/master/doc/basic-concepts.md
-
-
-if sys.version_info >= (3, 10):
-    from tempfile import TemporaryDirectory
-else:
-    from tempfile import TemporaryDirectory as _TemporaryDirectory
-
-    class TemporaryDirectory(_TemporaryDirectory):
-        """Shim to consume ignore_cleanup_errors kwarg on Python 3.9 and older.
-
-        The argument is consumed without action. If users are getting errors related
-        to temporary file cleanup, they should upgrade to Python 3.10 which properly
-        cleans up temporary directories on Windows.
-
-        See: https://github.com/python/cpython/pull/24793
-        """
-
-        def __init__(self, ignore_cleanup_errors=False, **kwargs):
-            super().__init__(**kwargs)
-
-    del _TemporaryDirectory
+# https://github.com/Flameeyes/unpaper/blob/main/doc/basic-concepts.md
 
 
 UNPAPER_IMAGE_PIXEL_LIMIT = 256 * 1024 * 1024
 
-DecFloat = Union[Decimal, float]
+DecFloat = Decimal | float
 
 log = logging.getLogger(__name__)
 
@@ -67,34 +47,8 @@ class UnpaperImageTooLargeError(Exception):
         super().__init__(self.message)
 
 
-def version() -> str:
-    return get_version('unpaper')
-
-
-SUPPORTED_MODES = {'1', 'L', 'RGB'}
-
-
-def _convert_image(im: Image.Image) -> tuple[Image.Image, bool]:
-    im_modified = False
-
-    if im.mode not in SUPPORTED_MODES:
-        log.info("Converting image to other colorspace")
-        try:
-            if im.mode == 'P' and len(im.getcolors()) == 2:
-                im = im.convert(mode='1')
-            else:
-                im = im.convert(mode='RGB')
-        except OSError as e:
-            raise MissingDependencyError(
-                "Could not convert image with type " + im.mode
-            ) from e
-        else:
-            im_modified = True
-        if im.mode not in SUPPORTED_MODES:
-            raise MissingDependencyError(
-                "Failed to convert image to a supported format."
-            ) from None
-    return im, im_modified
+def version() -> Version:
+    return Version(get_version('unpaper'))
 
 
 @contextmanager
@@ -102,21 +56,15 @@ def _setup_unpaper_io(input_file: Path) -> Iterator[tuple[Path, Path, Path]]:
     with Image.open(input_file) as im:
         if im.width * im.height >= UNPAPER_IMAGE_PIXEL_LIMIT:
             raise UnpaperImageTooLargeError(w=im.width, h=im.height)
-        im, im_modified = _convert_image(im)
 
-        with TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-            tmppath = Path(tmpdir)
-            if im_modified or input_file.suffix != '.png':
-                input_png = tmppath / 'input.png'
-                im.save(input_png, format='PNG')
-            else:
-                # No changes, PNG input, just use the file we already have
-                input_png = input_file
-
-            # unpaper can write .png too, but it seems to write them slowly
-            # adds a few seconds to test suite - so just use pnm
-            output_pnm = tmppath / 'output.pnm'
-            yield input_png, output_pnm, tmppath
+    with TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        tmppath = Path(tmpdir)
+        # No changes, PNG input, just use the file we already have
+        input_png = input_file
+        # unpaper can write .png too, but it seems to write them slowly
+        # adds a few seconds to test suite - so just use pnm
+        output_pnm = tmppath / 'output.pnm'
+        yield input_png, output_pnm, tmppath
 
 
 def run_unpaper(

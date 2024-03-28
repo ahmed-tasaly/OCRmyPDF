@@ -177,8 +177,13 @@ Custom command line arguments
 Execution and progress reporting
 --------------------------------
 
+.. autoclass:: ocrmypdf.pluginspec.ProgressBar
+    :members:
+    :special-members: __init__, __enter__, __exit__
+
 .. autoclass:: ocrmypdf.pluginspec.Executor
     :members:
+    :special-members: __call__
 
 .. autofunction:: ocrmypdf.pluginspec.get_logging_console
 

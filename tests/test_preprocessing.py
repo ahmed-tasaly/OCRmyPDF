@@ -9,10 +9,11 @@ import pytest
 from PIL import Image
 
 from ocrmypdf._exec import ghostscript, tesseract
+from ocrmypdf.exceptions import ExitCode
 from ocrmypdf.helpers import Resolution
 from ocrmypdf.pdfinfo import PdfInfo
 
-from .conftest import check_ocrmypdf, have_unpaper
+from .conftest import check_ocrmypdf, have_unpaper, run_ocrmypdf
 
 RENDERERS = ['hocr', 'sandwich']
 
@@ -46,11 +47,11 @@ def test_deskew_blank_page(resources, outpdf):
 @pytest.mark.xfail(reason="remove background disabled")
 def test_remove_background(resources, outdir):
     # Ensure the input image does not contain pure white/black
-    with Image.open(resources / 'congress.jpg') as im:
+    with Image.open(resources / 'baiona_color.jpg') as im:
         assert im.getextrema() != ((0, 255), (0, 255), (0, 255))
 
     output_pdf = check_ocrmypdf(
-        resources / 'congress.jpg',
+        resources / 'baiona_color.jpg',
         outdir / 'test_remove_bg.pdf',
         '--remove-background',
         '--image-dpi',
@@ -107,7 +108,7 @@ def test_non_square_resolution(renderer, resources, outpdf):
     in_pageinfo = PdfInfo(resources / 'aspect.pdf')
     assert in_pageinfo[0].dpi.x != in_pageinfo[0].dpi.y
 
-    check_ocrmypdf(
+    proc = run_ocrmypdf(
         resources / 'aspect.pdf',
         outpdf,
         '--pdf-renderer',
@@ -115,6 +116,10 @@ def test_non_square_resolution(renderer, resources, outpdf):
         '--plugin',
         'tests/plugins/tesseract_cache.py',
     )
+    # PDF/A conversion can fail for this file if Ghostscript >= 10.3, so don't test
+    # exit code in that case
+    if proc.returncode != ExitCode.pdfa_conversion_failed:
+        proc.check_returncode()
 
     out_pageinfo = PdfInfo(outpdf)
 

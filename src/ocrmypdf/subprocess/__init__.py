@@ -8,11 +8,11 @@ import logging
 import os
 import re
 import sys
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
 from subprocess import PIPE, STDOUT, CalledProcessError, CompletedProcess, Popen
 from subprocess import run as subprocess_run
-from typing import Callable, Mapping, Sequence, Union
 
 from packaging.version import Version
 
@@ -22,7 +22,7 @@ from ocrmypdf.exceptions import MissingDependencyError
 
 log = logging.getLogger(__name__)
 
-Args = Sequence[Union[Path, str]]
+Args = Sequence[Path | str]
 OsEnviron = os._Environ  # pylint: disable=protected-access
 
 
@@ -292,21 +292,12 @@ def _error_old_version(
     _error_trailer(**locals())
 
 
-def _remove_leading_v(s: str) -> str:
-    if sys.version_info >= (3, 9):
-        return s.removeprefix('v')
-
-    if s.startswith('v'):
-        return s[1:]
-    return s
-
-
 def check_external_program(
     *,
     program: str,
     package: str,
-    version_checker: Callable[[], str],
-    need_version: str,
+    version_checker: Callable[[], Version],
+    need_version: str | Version,
     required_for: str | None = None,
     recommended: bool = False,
     version_parser: type[Version] = Version,
@@ -326,6 +317,8 @@ def check_external_program(
         version_parser: A class that should be used to parse and compare version
             numbers. Used when version numbers do not follow standard conventions.
     """
+    if not isinstance(need_version, Version):
+        need_version = version_parser(need_version)
     try:
         found_version = version_checker()
     except (CalledProcessError, FileNotFoundError) as e:
@@ -339,11 +332,10 @@ def check_external_program(
             raise
         return
 
-    found_version = _remove_leading_v(found_version)
-    need_version = _remove_leading_v(need_version)
-
-    if found_version and version_parser(found_version) < version_parser(need_version):
-        _error_old_version(program, package, need_version, found_version, required_for)
+    if found_version and found_version < need_version:
+        _error_old_version(
+            program, package, str(need_version), str(found_version), required_for
+        )
         if not recommended:
             raise MissingDependencyError(program)
 

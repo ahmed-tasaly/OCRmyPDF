@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import platform
 
 import pytest
 
@@ -12,13 +13,16 @@ from ocrmypdf import ExitCode
 from .conftest import run_ocrmypdf_api
 
 
-@pytest.mark.skipif(True, reason="--use-threads is currently default")
 @pytest.mark.skipif(os.name == 'nt', reason="Windows doesn't have SIGKILL")
+@pytest.mark.skipif(
+    platform.python_version_tuple() >= ('3', '12'), reason="can deadlock due to fork"
+)
 def test_simulate_oom_killer(multipage, no_outpdf):
     exitcode = run_ocrmypdf_api(
         multipage,
         no_outpdf,
         '--force-ocr',
+        '--no-use-threads',
         '--plugin',
         'tests/plugins/tesseract_simulate_oom_killer.py',
     )

@@ -12,7 +12,7 @@ worker communicates only with the main process.
 
 This is not without drawbacks. If the tasks are not "even" in size, which cannot
 be guaranteed, some workers may end up with too much work while others are idle.
-It is less efficient than the standard implementation, so not th edefault.
+It is less efficient than the standard implementation, so not the default.
 """
 
 from __future__ import annotations
@@ -20,12 +20,12 @@ from __future__ import annotations
 import logging
 import logging.handlers
 import signal
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import suppress
 from enum import Enum, auto
 from itertools import islice, repeat, takewhile, zip_longest
 from multiprocessing import Pipe, Process
 from multiprocessing.connection import Connection, wait
-from typing import Callable, Iterable, Iterator
 
 from ocrmypdf import Executor, hookimpl
 from ocrmypdf._concurrent import NullProgressBar
@@ -93,7 +93,7 @@ def process_loop(
 
     for args in task_args:
         try:
-            result = task(args)
+            result = task(*args)
         except Exception as e:  # pylint: disable=broad-except
             conn.send((MessageType.exception, e))
             break
@@ -113,16 +113,16 @@ class LambdaExecutor(Executor):
         *,
         use_threads: bool,
         max_workers: int,
-        tqdm_kwargs: dict,
+        progress_kwargs: dict,
         worker_initializer: Callable,
         task: Callable,
         task_arguments: Iterable,
         task_finished: Callable,
     ):
         if use_threads and max_workers == 1:
-            with self.pbar_class(**tqdm_kwargs) as pbar:
+            with self.pbar_class(**progress_kwargs) as pbar:
                 for args in task_arguments:
-                    result = task(args)
+                    result = task(*args)
                     task_finished(result, pbar)
             return
 
@@ -156,7 +156,7 @@ class LambdaExecutor(Executor):
         for process in processes:
             process.start()
 
-        with self.pbar_class(**tqdm_kwargs) as pbar:
+        with self.pbar_class(**progress_kwargs) as pbar:
             while connections:
                 for result in wait(connections):
                     if not isinstance(result, Connection):

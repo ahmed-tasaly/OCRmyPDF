@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from subprocess import CalledProcessError
 from unittest.mock import patch
 
@@ -23,7 +22,7 @@ def generate_pdfa(
     pdf_pages,
     pdfmark,
     output_file,
-    compression,
+    context,
     pdf_version,
     pdfa_part,
     stop_on_soft_error,
@@ -34,7 +33,7 @@ def generate_pdfa(
             pdf_pages=pdf_pages,
             pdfmark=pdfmark,
             output_file=output_file,
-            compression=compression,
+            context=context,
             pdf_version=pdf_version,
             pdfa_part=pdfa_part,
             progressbar_class=None,

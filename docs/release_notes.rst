@@ -20,6 +20,8 @@ The most recent release of OCRmyPDF is |OCRmyPDF PyPI|. Any newer versions
 referred to in these notes may exist the main branch but have not been
 tagged yet.
 
+OCRmyPDF typically supports the three most recent Python versions.
+
 .. note::
 
    Attention maintainers: these release notes may be updated with information
@@ -28,16 +30,250 @@ tagged yet.
 
 .. |OCRmyPDF PyPI| image:: https://img.shields.io/pypi/v/ocrmypdf.svg
 
-next
-====
+v16.1.2
+=======
 
--  Improve PDF rasterization accuracy by using the `-dPDFSTOPONERROR` option
-   to Ghostscript. Use `--continue-on-soft-render-error` if you want to render
+-  Fixed test suite failure when using Ghostscript 10.3.
+-  Other minor corrections.
+
+v16.1.1
+=======
+
+-  Fixed PyPy 3.10 support.
+
+v16.1.0
+=======
+
+-  Improved hOCR renderer is now default for left to right languages.
+-  Improved handling of rotated pages. Previously, OCR text might be missing for
+   pages that were rotated with a /Rotate tag on the page entry.
+-  Improved handling of cropped pages. Previously, in some cases a page with a
+   crop box would not have its OCR applied correctly and misalignment between
+   OCR text and visible text coudl occur.
+-  Documentation improvements, especially installation instructions for less
+   common platforms.
+
+v16.0.4
+=======
+
+-  Fixed some issues for left-to-right text with the new hOCR renderer. It is still
+   not default yet but will be made so soon. Right-to-left text is still in progress.
+-  Added an error to prevent use of several versions of Ghostscript that seem
+   corrupt existing text in input PDFs. Newly generated OCR is not affected.
+   For best results, use Ghostscript 10.02.1 or newer, which contains the fix
+   for the issue.
+
+v16.0.3
+=======
+
+-  Changed minimum required Ghostscript to 9.54, to support users of RHEL 9 and its
+   derivatives, since that is the latest version available there.
+-  Removed warning message about CVE-2023-43115, on the assumption that most
+   distributions have backported the patch by now.
+
+v16.0.2
+=======
+
+-  Temporarily changed PDF text renderer back to sandwich by default to address
+   regressions in macOS Preview.
+
+v16.0.1
+=======
+
+-  Fixed text rendering issue with new hOCR text renderer - extraneous byte order
+   marks.
+-  Tightened dependencies.
+
+v16.0.0
+=======
+
+-  Added OCR text renderer, combined the best ideas of Tesseract's PDF
+   generator and the older hOCR transformer renderer. The result is a hopefully
+   permanent fix for wordssmushedtogetherwithoutspaces issues in extracted text,
+   better registration/position of text on skewed baselines :issue:`1009`,
+   fixes to character output when the German Fraktur script is used :issue:`1191`,
+   proper rendering of right to left languages (Arabic, Hebrew, Persian) :issue:`1157`.
+   Asian languages may still have excessive word breaks compared to expectations.
+   The new renderer is the default; the old sandwich renderer is still available
+   using ``--pdf-renderer sandwich``; the old hOCR renderer is no more.
+-  The ``ocrmypdf.hocrtransform`` API has changed substantially.
+-  Support for Python 3.9 has been dropped. Python 3.10+ is now required.
+-  pikepdf >= 8.8.0 is now required.
+
+
+v15.4.4
+=======
+
+-  Fixed documentation for installing Ghostscript on Windows. :issue:`1198`
+-  Added warning message about security issue in older versions of Ghostscript.
+
+v15.4.3
+=======
+
+-  Fixed deprecation warning in pikepdf older than 8.7.1; pikepdf >= 8.7.1 is
+   now required.
+
+v15.4.2
+=======
+
+-  We now raise an exception on a certain class of PDFs that likely need an
+   explicit color conversion strategy selected to display correctly
+   for PDF/A conversion.
+-  Fixed an error that occurred while trying to write a log message after the
+   debug log handler was removed.
+
+v15.4.1
+=======
+
+-  Fixed misc/watcher.py regressions: accept ``--ocr-json-settings`` as either
+   filename or JSON string, as previously; and argument count mismatch.
+   :issue:`1183,1185`
+-  We no longer attempt to set /ProcSet in the PDF output, since this is an
+   obsolete PDF feature.
+-  Documentation improvements.
+
+v15.4.0
+=======
+
+-  Added new experimental APIs to support offline editing of the final text.
+   Specifically, one can now generate hOCR files with OCRmyPDF, edit them with
+   some other tool, and then finalize the PDF. They are experimental and
+   subject to change, including details of how the working folder is used.
+   There is no command line interface.
+-  Code reorganization: executors, progress bars, initialization and setup.
+-  Fixed test coverage in cases where the coverage tool did not properly trace
+   into threads or subprocesses. This code was still being tested but appeared
+   as not covered.
+-  In the test suite, reduced use of subprocesses and other techniques that
+   interfere with coverage measurement.
+-  Improved error check for when we appear to be running inside a snap container
+   and files are not available.
+-  Plugin specification now properly defines progress bars as a protocol rather
+   than defining them as "tqdm-like".
+-  We now default to using "forkserver" process creation on POSIX platforms
+   rather than fork, since this is method is more robust and avoids some
+   issues when threads are present.
+-  Fixed an instance where the user's request to ``--no-use-threads`` was ignored.
+-  If a PDF does not have language metadata on its top level object, we add
+   the OCR language.
+-  Replace some cryptic test error messages with more helpful ones.
+-  Debug messages for how OCRmyPDF picks the colorspace for a page are now
+   more descriptive.
+
+v15.3.1
+=======
+
+-  Fixed an issue with logging settings for misc/watcher.py introduced in the
+   previous release. :issue:`1180`
+-  We now attempt to preserve the input's extended attributes when creating
+   the output file.
+-  For some reason, the macOS build now needs OpenSSL explicitly installed.
+-  Updated documentation on Docker performance concerns.
+
+v15.3.0
+=======
+
+-  Update misc/watcher.py to improve command line interface using Typer, and
+   support ``.env`` specification of environment variables. Improved error
+   messages. Thanks to @mflagg2814 for the PR that prompted this improvement.
+-  Improved error message when a file cannot be read because we are running in
+   a snap container.
+
+v15.2.0
+=======
+
+-  Added a Docker image based on Alpine Linux. This image is smaller than the
+   Ubuntu-based image and may be useful in some situations. Currently hosted at
+   jbarlow83/ocrmypdf-alpine. Currently not available in ARM flavor.
+-  The Ubuntu Docker is now aliased to jbarlow83/ocrmypdf-ubuntu.
+-  Updated Docker documentation.
+
+v15.1.0
+=======
+
+-  We now require Pillow 10.0.1, due a serious security vulnerability in all earlier
+   versions of that dependency. The vulnerability concerns WebP images and could
+   be triggered in OCRmyPDF when creating a PDF from a malicious WebP image.
+-  Added some keyword arguments to ``ocrmypdf.ocr`` that were previously accepted
+   but undocumented.
+-  Documentation updates and typing improvements.
+
+v15.0.2
+=======
+
+-  Added Python 3.12 to test matrix.
+-  Updated documentation for notes on Python 3.12, 32-bit support and some new
+   features in v15.
+
+v15.0.1
+=======
+
+-  Wheels Python tag changed to py39.
+-  Marked as a expected fail a test that fails on recent Ghostscript versions.
+-  Clarified documentation and release notes around the extent of 32-bit support.
+-  Updated installation documentation to changes in v15.
+
+v15.0.0
+=======
+
+-  Dropped support for Python 3.8.
+-  Dropped support some older dependencies, specifically ``coloredlogs`` and
+   ``tqdm`` in favor of rich - see ``pyproject.toml`` for details.
+   Generally speaking, Ubuntu 22.04 is our new baseline system.
+-  Tightened version requirements for some dependencies.
+-  Dropped support for 32-bit Linux wheels. We strongly recommend a 64-bit operating
+   system, and 64-bit versions of Python, Tesseract and Ghostscript to use OCRmyPDF.
+   Many of our dependencies are dropping 32-bit builds (e.g. Pillow), and we are
+   following suit. (Maintainers may still build 32-bit versions from source.)
+-  Changed to trusted release for PyPI publishing.
+-  pikepdf memory mapping is enabled again for improved performance, now that an
+   issue with feature in pikepdf is fixed.
+-  ``ocrmypdf.helpers.calculate_downsample`` previously had two variants, one
+   that took a ``PIL.Image`` and one that took a ``tuple[int, int]``. The latter
+   was removed.
+-  The snap version of ocrmypdf is now based on Ubuntu core22.
+-  We now account for situations where a small portion of an image on a page is drawn
+   at high DPI (resolution). Previously, the entire page would be rasterized at the
+   highest resolution of any feature, which caused performance problems. Now,
+   the page is rasterized
+   at a resolution based on the average DPI of the page, weighted by the area that
+   each feature occupies. Typically, small areas of high resolution in PDFs are
+   errors or quirks from the repeated use of assets and high resolution is not
+   beneficial. :issue:`1010,1104,1004,1079,1010`
+-  Ghostscript color conversion strategy is now configurable using
+   ``--color-conversion-strategy``. :issue:`1143`
+-  JBIG2 threshold for optimization is now configurable using
+   ``--jbig2-threshold``. :issue:`1133`
+
+v14.4.0
+=======
+
+-  Digitally signed PDFs are now detected. If the PDF is signed, OCRmyPDF will
+   refuse to modify it. Previously, only encrypted PDFs were detected, not
+   those that were signed but not encrypted. :issue:`1040`
+-  In addition, ``--invalidate-digital-signatures`` can be used to override the
+   above behavior and modify the PDF anyway. :issue:`1040`
+-  tqdm progress bars replaced with "rich" progress bars. The rich library is
+   a new dependency. Certain APIs that used tqdm are now deprecated and will
+   be removed in the next major release.
+-  Improved integration with GitHub Releases. Thanks to @stumpylog.
+
+v14.3.0
+=======
+
+-  Renamed master branch to main.
+-  Improve PDF rasterization accuracy by using the ``-dPDFSTOPONERROR`` option
+   to Ghostscript. Use ``--continue-on-soft-render-error`` if you want to render
    the PDF anyway. The plugin specification was adjusted to support this feature;
    plugin authors may want to adapt PDF rasterizing and rendering
    plugins. :issue:`1083`
--  Renamed master branch to main.
--  The calculated deskew angle is now logged. :issue:`1101`
+-  The calculated deskew angle is now recorded in the logged output. :issue:`1101`
+-  Metadata can now be unset by setting a metadata type such as ``--title`` to an
+   empty string. :issue:`1117,1059`
+-  Fixed random order of languages due to use of a set. This may have caused output
+   to vary when multiple languages were set for OCR. :issue:`1113`
+-  Clarified the optimization ratio reported in the log output.
+-  Documentation improvements.
 
 v14.2.1
 =======
@@ -48,7 +284,7 @@ v14.2.1
 v14.2.0
 =======
 
--  Added `--tesseract-downsample-above` to downsample larger images even when
+-  Added ``--tesseract-downsample-above`` to downsample larger images even when
    they do not exceed Tesseract's internal limits. This can be used to speed
    up OCR, possibly sacrificing accuracy.
 -  Fixed resampling AttributeError on older Pillow. :issue:`1096`

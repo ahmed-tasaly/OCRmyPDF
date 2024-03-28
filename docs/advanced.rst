@@ -10,7 +10,7 @@ Control of unpaper
 
 OCRmyPDF uses ``unpaper`` to provide the implementation of the
 ``--clean`` and ``--clean-final`` arguments.
-`unpaper <https://github.com/Flameeyes/unpaper/blob/master/doc/basic-concepts.md>`__
+`unpaper <https://github.com/Flameeyes/unpaper/blob/main/doc/basic-concepts.md>`__
 provides a variety of image processing filters to improve images.
 
 By default, OCRmyPDF uses only ``unpaper`` arguments that were found to
@@ -47,8 +47,8 @@ and clean up the margins of both.
 
    Some ``unpaper`` features cause multiple input or output files to be
    consumed or produced. OCRmyPDF requires ``unpaper`` to consume one
-   file and produce one file. An deviation from that condition will
-   result in errors.
+   file and produce one file; errors will result if this assumption is not
+   met.
 
 .. note::
 
@@ -82,14 +82,17 @@ is stripped out. Then an image of each page is created with visible text
 masked out. The page image is sent for OCR, and any additional text is
 inserted as OCR. If a file contains a mix of text and bitmap images that
 contain text, OCRmyPDF will locate the additional text in images without
-disrupting the existing text.
+disrupting the existing text. Some PDF OCR solutions render text as
+technically printable or visible in some way, perhaps by drawing it and
+then painting over it. OCRmyPDF cannot distinguish this type of OCR
+text from real text, so it will not be "redone".
 
 If ``--force-ocr`` is issued, then all pages will be rasterized to
-images, discarding any hidden OCR text, and rasterizing any printable
-text. This is useful for redoing OCR, for fixing OCR text with a damaged
-character map (text is selectable but not searchable), and destroying
-redacted information. Any forms and vector graphics will be rasterized
-as well.
+images, discarding any hidden OCR text, rasterizing any printable
+text, and flattening form fields or interactive objects into their visual
+representation. This is useful for redoing OCR, for fixing OCR text
+with a damaged character map (text is selectable but not searchable),
+and destroying redacted information.
 
 Time and image size limits
 --------------------------
@@ -110,6 +113,41 @@ exceed a certain number of megapixels with ``--skip-big``. (A 300 DPI,
 
     # Allow 300 seconds for OCR; skip any page larger than 50 megapixels
     ocrmypdf --tesseract-timeout 300 --skip-big 50 bigfile.pdf output.pdf
+
+OCR for huge images
+-------------------
+
+Tesseract has internal limits on the size
+of images it will process. If you issue
+``--tesseract-downsample-large-images``, OCRmyPDF will downsample images
+to fit Tesseract limits. (The limits are usually entered only for scanned
+images of oversized media, such as large maps or blueprints exceeding
+110 cm or 43 inches in either dimension, and at high DPI.)
+
+``--tesseract-downsample-above Npixels`` adjusts the threshold at which images
+will be downsampled. By default, only images that exceed any of Tesseract's
+internal limits are downsampled.
+
+You will also need to set ``--tesseract-timeout`` high enough to allow
+for processing.
+
+Only the image sent for OCR is downsampled. The original image is
+preserved.
+
+.. code-block:: bash
+
+    # Allow 600 seconds for OCR on huge images
+    ocrmypdf --tesseract-timeout 600 \
+        --tesseract-downsample-large-images \
+        bigfile.pdf output.pdf
+
+    # Downsample images above 5000 pixels on the longest dimension to
+    # 5000 pixels
+    ocrmypdf --tesseract-timeout 120 \
+        --tesseract-downsample-large-images \
+        --tesseract-downsample-above 5000 \
+        bigfile.pdf output_downsampled_ocr.pdf
+
 
 Overriding default tesseract
 ----------------------------
@@ -154,12 +192,13 @@ In addition to tesseract, OCRmyPDF uses the following external binaries:
 -  ``jbig2``
 
 In each case OCRmyPDF will search the ``PATH`` environment variable to
-locate the binaries.
+locate the binaries. By modifying the ``PATH`` environment variable, you
+can override the binaries that OCRmyPDF uses.
 
-Changing tesseract configuration variables
+Changing Tesseract configuration variables
 ------------------------------------------
 
-You can override tesseract's default `control
+You can override Tesseract's default `control
 parameters <https://tesseract-ocr.github.io/tessdoc/tess3/ControlParams.html>`__
 with a configuration file.
 
@@ -200,46 +239,46 @@ rendering
 OCRmyPDF has these PDF renderers: ``sandwich`` and ``hocr``. The
 renderer may be selected using ``--pdf-renderer``. The default is
 ``auto`` which lets OCRmyPDF select the renderer to use. Currently,
-``auto`` always selects ``sandwich``.
-
-The ``sandwich`` renderer
--------------------------
-
-The ``sandwich`` renderer uses Tesseract's new text-only PDF feature,
-which produces a PDF page that lays out the OCR in invisible text. This
-page is then "sandwiched" onto the original PDF page, allowing lossless
-application of OCR even to PDF pages that contain other vector objects.
-
-Currently this is the best renderer for most uses, however it is
-implemented in Tesseract so OCRmyPDF cannot influence it. Currently some
-problematic PDF viewers like Mozilla PDF.js and macOS Preview have
-problems with segmenting its text output, and
-mightrunseveralwordstogether.
-
-When image preprocessing features like ``--deskew`` are used, the
-original PDF will be rendered as a full page and the OCR layer will be
-placed on top.
+``auto`` always selects ``hocr``.
 
 The ``hocr`` renderer
 ---------------------
 
-The ``hocr`` renderer works with older versions of Tesseract. The image
-layer is copied from the original PDF page if possible, avoiding
-potentially lossy transcoding or loss of other PDF information. If
-preprocessing is specified, then the image layer is a new PDF. (You may
-need to disable PDF/A conversion nad optimization to eliminate all
-lossy transformations.)
+.. versionchanged:: 16.0.0
 
-Unlike ``sandwich`` this renderer is implemented within OCRmyPDF; anyone
-looking to customize how OCR is presented should look here. A major
-disadvantage of this renderer is it not capable of correctly handling
-text outside the Latin alphabet (specifically, it supports the ISO 8859-1
-character). Pull requests to improve the situation are welcome.
+In both renderers, a text-only layer is rendered and sandwiched (overlaid)
+on to either the original PDF page, or newly rasterized version of the
+original PDF page (when ``--force-ocr`` is used). In this way, loss
+of PDF information is generally avoided. (You may need to disable PDF/A
+conversion and optimization to eliminate all lossy transformations.)
 
-Currently, this renderer has the best compatibility with Mozilla's
-PDF.js viewer.
+The current approach used by the new hOCR renderer is a re-implementation
+of Tesseract's PDF renderer, using the same Glyphless font and general
+ideas, but fixing many technical issues that impeded it. The new hocr
+provides better text placement accuracy, avoids issues with word
+segmentation, and provides better positioning of skewed text.
 
-This works in all versions of Tesseract.
+Using the experimental API, it is also possible to edit the OCR output
+from Tesseract, using any tool that is capable of editing hOCR files.
+
+Older versions of this renderer did not support non-Latin languages, but
+it is now universal.
+
+The ``sandwich`` renderer
+-------------------------
+
+The ``sandwich`` renderer uses Tesseract's text-only PDF feature,
+which produces a PDF page that lays out the OCR in invisible text.
+
+Currently some problematic PDF viewers like Mozilla PDF.js and macOS
+Preview have problems with segmenting its text output, and
+mightrunseveralwordstogether. It also does not implement right to left
+fonts (Arabic, Hebrew, Persian). The output of this renderer cannot
+be edited. The sandwich renderer is retained for testing.
+
+When image preprocessing features like ``--deskew`` are used, the
+original PDF will be rendered as a full page and the OCR layer will be
+placed on top.
 
 Rendering and rasterizing options
 =================================
@@ -247,10 +286,30 @@ Rendering and rasterizing options
 .. versionadded:: 14.3.0
 
 The ``--continue-on-soft-render-error`` option allows OCRmyPDF to
-proceed if a page cannot be rasterized rendered. This is useful if you are
+proceed if a page cannot be rasterized/rendered. This is useful if you are
 trying to get the best possible OCR from a PDF that is not well-formed,
 and you are willing to accept some pages that may not visually match the
 input, and that may not OCR well.
+
+Color conversion strategy
+=========================
+
+.. versionadded:: 15.0.0
+
+OCRmyPDF uses Ghostscript to convert PDF to PDF/A. In some cases, this
+conversion requires color conversion. The default strategy is to convert
+using the ``LeaveColorUnchanged`` strategy, which preserves the original
+color space wherever possible (some rare color spaces might still be
+converted).
+
+Usually document scanners produce PDFs in the sRGB color space, and do
+not need to be converted, so the default strategy is appropriate.
+
+Suppose that you have a document that was prepared for professional
+printing in a Separation or CMYK color space, and text was converted to
+curves. In this case, you may want to use a different color conversion
+strategy. The ``--color-conversion-strategy`` option allows you to select a
+different strategy, such as ``RGB``.
 
 Return code policy
 ==================
@@ -310,16 +369,31 @@ stable user interface. They may be imported from
         - The program was interrupted by pressing Ctrl+C.
 
 
+.. _tmpdir:
+
+Changing temporary storage location
+===================================
+
+OCRmyPDF generates many temporary files during processing.
+
+To change where temporary files are stored, change the ``TMPDIR``
+environment variable for ocrmypdf's environment. (Python's
+``tempfile.gettempdir()`` returns the root directory in which temporary
+files will be stored.) For example, one could redirect ``TMPDIR`` to a
+large RAM disk to avoid wear on HDD/SSD and potentially improve
+performance.
+
+On Windows, the ``TEMP`` environment variable is used instead.
+
 Debugging the intermediate files
 ================================
 
 OCRmyPDF normally saves its intermediate results to a temporary folder
 and deletes this folder when it exits, whether it succeeded or failed.
 
-If the ``-k`` argument is issued on the command line, OCRmyPDF will keep
-the temporary folder and print the location, whether it succeeded or
-failed (provided the Python interpreter did not crash). An example
-message is:
+If the ``--keep-temporary-files`` (``-k```) argument is issued on the
+command line, OCRmyPDF will keep the temporary folder and print the location,
+whether it succeeded or failed. An example message is:
 
 .. code-block:: none
 

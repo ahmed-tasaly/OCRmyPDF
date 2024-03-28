@@ -10,17 +10,19 @@ from shutil import copyfile
 
 import pikepdf
 import pytest
+from packaging.version import Version
 from pikepdf.models.metadata import decode_pdf_date
 
+from ocrmypdf._exec import ghostscript
 from ocrmypdf._jobcontext import PdfContext
-from ocrmypdf._pipeline import convert_to_pdfa, metadata_fixup
+from ocrmypdf._metadata import metadata_fixup
+from ocrmypdf._pipeline import convert_to_pdfa
 from ocrmypdf._plugin_manager import get_parser_options_plugins, get_plugin_manager
-from ocrmypdf.cli import get_parser
 from ocrmypdf.exceptions import ExitCode
 from ocrmypdf.pdfa import file_claims_pdfa, generate_pdfa_ps
 from ocrmypdf.pdfinfo import PdfInfo
 
-from .conftest import check_ocrmypdf, run_ocrmypdf
+from .conftest import check_ocrmypdf, run_ocrmypdf, run_ocrmypdf_api
 
 
 @pytest.mark.parametrize("output_type", ['pdfa', 'pdf'])
@@ -43,12 +45,12 @@ def test_preserve_docinfo(output_type, resources, outpdf):
 
 
 @pytest.mark.parametrize("output_type", ['pdfa', 'pdf'])
-def test_override_metadata(output_type, resources, outpdf):
+def test_override_metadata(output_type, resources, outpdf, caplog):
     input_file = resources / 'c02-22.pdf'
     german = 'Du siehst den Wald vor lauter Bäumen nicht.'
     chinese = '孔子'
 
-    p = run_ocrmypdf(
+    exitcode = run_ocrmypdf_api(
         input_file,
         outpdf,
         '--title',
@@ -61,7 +63,7 @@ def test_override_metadata(output_type, resources, outpdf):
         'tests/plugins/tesseract_noop.py',
     )
 
-    assert p.returncode == ExitCode.ok, p.stderr
+    assert exitcode == ExitCode.ok, caplog.text
 
     with pikepdf.open(input_file) as before, pikepdf.open(outpdf) as after:
         assert after.docinfo.Title == german, after.docinfo
@@ -74,6 +76,51 @@ def test_override_metadata(output_type, resources, outpdf):
 
         pdfa_info = file_claims_pdfa(outpdf)
         assert pdfa_info['output'] == output_type
+
+
+@pytest.mark.parametrize('output_type', ['pdfa', 'pdf', 'pdfa-1', 'pdfa-2', 'pdfa-3'])
+@pytest.mark.parametrize('field', ['title', 'author', 'subject', 'keywords'])
+def test_unset_metadata(output_type, field, resources, outpdf, caplog):
+    input_file = resources / 'meta.pdf'
+
+    # magic strings contained in the input pdf metadata
+    meta = {
+        'title': b'NFY5f7Ft2DWMkxLhXwxvFf7eWR2KeK3vEDcd',
+        'author': b'yXaryipxyRk9dVjWjSSaVaNCKeLRgEVzPRMp',
+        'subject': b't49vimctvnuH7ZeAjAkv52ACvWFjcnm5MPJr',
+        'keywords': b's9EeALwUg7urA7fnnhm5EtUyC54sW2WPUzqh',
+    }
+
+    exitcode = run_ocrmypdf_api(
+        input_file,
+        outpdf,
+        f'--{field}',
+        '',
+        '--output-type',
+        output_type,
+        '--plugin',
+        'tests/plugins/tesseract_noop.py',
+    )
+
+    assert exitcode == ExitCode.ok, caplog.text
+
+    # We mainly want to ensure that when '' is passed, the corresponding
+    # metadata is unset in the output pdf. Since metedata is not compressed,
+    # the best way to gaurentee the metadata of interest didn't carry
+    # forward is to just check to ensure the corresponding magic string
+    # isn't contained anywhere in the output pdf. We'll also check to ensure
+    # it's in the input pdf and that any values not unset are still in the
+    # output pdf.
+    with open(input_file, 'rb') as before, open(outpdf, 'rb') as after:
+        before_data = before.read()
+        after_data = after.read()
+
+    for k, v in meta.items():
+        assert v in before_data
+        if k == field:
+            assert v not in after_data
+        else:
+            assert v in after_data
 
 
 def test_high_unicode(resources, no_outpdf):
@@ -286,7 +333,9 @@ def test_metadata_fixup_warning(resources, outdir, caplog):
     context = PdfContext(
         options, outdir, outdir / 'graph.pdf', None, get_plugin_manager([])
     )
-    metadata_fixup(working_file=outdir / 'graph.pdf', context=context)
+    metadata_fixup(
+        working_file=outdir / 'graph.pdf', context=context, pdf_save_settings={}
+    )
     for record in caplog.records:
         assert record.levelname != 'WARNING', "Unexpected warning"
 
@@ -299,7 +348,9 @@ def test_metadata_fixup_warning(resources, outdir, caplog):
     context = PdfContext(
         options, outdir, outdir / 'graph_mod.pdf', None, get_plugin_manager([])
     )
-    metadata_fixup(working_file=outdir / 'graph.pdf', context=context)
+    metadata_fixup(
+        working_file=outdir / 'graph.pdf', context=context, pdf_save_settings={}
+    )
     assert any(record.levelname == 'WARNING' for record in caplog.records)
 
 
@@ -308,17 +359,24 @@ XMP_MAGIC = b'W5M0MpCehiHzreSzNTczkc9d'
 
 def test_prevent_gs_invalid_xml(resources, outdir):
     generate_pdfa_ps(outdir / 'pdfa.ps')
-    copyfile(resources / 'trivial.pdf', outdir / 'layers.rendered.pdf')
 
     # Inject a string with a trailing nul character into the DocumentInfo
     # dictionary of this PDF, as often occurs in practice.
-    with pikepdf.open(outdir / 'layers.rendered.pdf') as pike:
-        pike.Root.DocumentInfo = pikepdf.Dictionary(
+    with pikepdf.open(resources / 'trivial.pdf') as pdf:
+        pdf.Root.DocumentInfo = pikepdf.Dictionary(
             Title=b'String with trailing nul\x00'
         )
+        pdf.save(outdir / 'layers.rendered.pdf', fix_metadata_version=False)
 
-    options = get_parser().parse_args(
-        args=['-j', '1', '--output-type', 'pdfa-2', 'a.pdf', 'b.pdf']
+    _, options, _ = get_parser_options_plugins(
+        args=[
+            '-j',
+            '1',
+            '--output-type',
+            'pdfa-2',
+            'a.pdf',
+            'b.pdf',
+        ]
     )
     pdfinfo = PdfInfo(outdir / 'layers.rendered.pdf')
     context = PdfContext(
@@ -341,19 +399,24 @@ def test_prevent_gs_invalid_xml(resources, outdir):
     assert contents.find(b'\x00', xmp_start, xmp_end) == -1
 
 
+@pytest.mark.xfail(
+    ghostscript.version() >= Version('10.01.2'),
+    reason=(
+        "Ghostscript now exits with an error on invalid DocumentInfo, defeating "
+        "this test.",
+    ),
+)
 def test_malformed_docinfo(caplog, resources, outdir):
     generate_pdfa_ps(outdir / 'pdfa.ps')
-    # copyfile(resources / 'trivial.pdf', outdir / 'layers.rendered.pdf')
 
-    with pikepdf.open(resources / 'trivial.pdf') as pike:
-        pike.trailer.Info = pikepdf.Stream(pike, b"<xml></xml>")
-        pike.save(outdir / 'layers.rendered.pdf', fix_metadata_version=False)
+    with pikepdf.open(resources / 'trivial.pdf') as pdf:
+        pdf.trailer.Info = pikepdf.Stream(pdf, b"<xml></xml>")
+        pdf.save(outdir / 'layers.rendered.pdf', fix_metadata_version=False)
 
-    options = get_parser().parse_args(
+    _, options, _ = get_parser_options_plugins(
         args=[
             '-j',
             '1',
-            '--continue-on-soft-render-error',
             '--output-type',
             'pdfa-2',
             'a.pdf',

@@ -8,17 +8,16 @@
 OCRmyPDF Docker image
 =====================
 
-OCRmyPDF is also available in a Docker image that packages recent
+OCRmyPDF is also available in Docker images that packages recent
 versions of all dependencies.
 
 For users who already have Docker installed this may be an easy and
-convenient option. However, it is less performant than a system
-installation and may require Docker engine configuration.
+convenient option.
 
-OCRmyPDF needs a generous amount of RAM, CPU cores, temporary storage
-space, whether running in a Docker container or on its own. It may be
-necessary to ensure the container is provisioned with additional
-resources.
+On platforms other than Linux, Docker runs in a virtual machine, and so may
+be less performant. You may also want to adjust the Docker virtual machine's
+memory and CPU allocation. On Linux, the Docker image runs natively and
+performance is comparable to a system installation.
 
 .. _docker-install:
 
@@ -35,28 +34,37 @@ execute the image:
 
    docker run hello-world
 
-The recommended OCRmyPDF Docker image is currently named ``ocrmypdf``:
+.. list-table:: Docker images
+   :width: 30 20 50
+   :header-rows: 1
+
+   * - Image
+     - Architecture
+     - Description
+   * - ``jbarlow83/ocrmypdf-alpine``
+     - x86_64 only
+     - Recommended image, based on Alpine Linux.
+   * - ``jbarlow83/ocrmypdf-ubuntu``
+     - x86_64 and arm64
+     - Alternate image, based on Ubuntu. When the Alpine image is considered
+       stable and available for arm64, this image will be deprecated.
+   * - ``jbarlow83/ocrmypdf``
+     - x86_64 and arm64
+     - Currently an alias for ocrmypdf-ubuntu. When the Alpine image is
+       considered stable and available for arm64, this name point to the
+       Alpine image. If you don't about the difference between Alpine and
+       Ubuntu, use this image.
+
+To install:
 
 .. code-block:: bash
 
-   docker pull jbarlow83/ocrmypdf
+   docker pull jbarlow83/ocrmypdf-alpine
 
+The ``ocrmypdf`` image is also available, but is deprecated and will be removed
+in the future.
 
-OCRmyPDF will use all available CPU cores. By default, the VirtualBox
-machine instance on Windows and macOS has only a single CPU core
-enabled. Use the VirtualBox Manager to determine the name of your Docker
-engine host, and then follow these optional steps to enable multiple
-CPUs:
-
-.. code-block:: bash
-
-   # Optional step for Mac OS X users
-   docker-machine stop "yourVM"
-   VBoxManage modifyvm "yourVM" --cpus 2  # or whatever number of core is desired
-   docker-machine start "yourVM"
-   eval $(docker-machine env "yourVM")
-
-See the Docker documentation for
+OCRmyPDF will use all available CPU cores. See the Docker documentation for
 `adjusting memory and CPU on other platforms <https://docs.docker.com/config/containers/resource_constraints/>`__.
 
 Using the Docker image on the command line
@@ -66,6 +74,8 @@ Using the Docker image on the command line
 container is ephemeral – it runs for one OCR job and terminates, just like a
 command line program. We are using Docker to deliver an application (as opposed
 to the more conventional case, where a Docker container runs as a server).
+For that reason we usually use the ``--rm`` argument to delete the container
+when it exits.
 
 To start a Docker container (instance of the image):
 
@@ -116,7 +126,7 @@ Dockerfile based on the public one.
    # Example: add Italian
    RUN apt install tesseract-ocr-ita
 
-To install language packs (training data) such as the 
+To install language packs (training data) such as the
 `tessdata_best <https://github.com/tesseract-ocr/tessdata_best>`_ suite or
 custom data, you first need to determine the version of Tesseract data files, which
 may differ from the Tesseract program version. Use this command to determine the data
@@ -132,16 +142,34 @@ You can then add new data with either a Dockerfile:
 
 .. code-block:: dockerfile
 
-   FROM jbarlow83/ocrmypdf
+   FROM jbarlow83/ocrmypdf:{TAG}
 
    # Example: add a tessdata_best file
    COPY chi_tra_vert.traineddata /usr/share/tesseract-ocr/<data version>/tessdata/
+
+When creating your own image, you should always pin a specific version of the
+OCRmyPDF Docker image. This ensures that your image will not break when a new
+version of OCRmyPDF is released.
 
 Alternately, you can copy training data into a Docker container as follows:
 
 .. code-block:: bash
 
    docker cp mycustomtraining.traineddata name_of_container:/usr/share/tesseract-ocr/<tesseract version>/tessdata/
+
+Extending the Docker image
+==========================
+
+You can extend the Docker image with your own customizations, similar to the way
+it is extended to add language packs.
+
+Note that the Docker image is subject to change at any time. For example, the base
+image may be updated to a newer version of Ubuntu or Debian. Such changes will be
+noted in the release notes but might occur at minor versions releases, unless the
+way a "casual" user of the Docker image is affected.
+
+If you extend the Docker image, you should pin a specific version of the OCRmyPDF
+Docker image.
 
 Executing the test suite
 ========================
@@ -150,16 +178,16 @@ The OCRmyPDF test suite is installed with image. To run it:
 
 .. code-block:: bash
 
-   docker run --entrypoint python3  jbarlow83/ocrmypdf -m pytest
+   docker run --rm --entrypoint python  jbarlow83/ocrmypdf -m pytest
 
 Accessing the shell
 ===================
 
-To use the bash shell in the Docker image:
+To use the shell in the Docker image:
 
 .. code-block:: bash
 
-   docker run -it --entrypoint bash  jbarlow83/ocrmypdf
+   docker run -it --entrypoint sh  jbarlow83/ocrmypdf
 
 Using the OCRmyPDF web service wrapper
 ======================================
@@ -169,7 +197,10 @@ service. The webservice may be launched as follows:
 
 .. code-block:: bash
 
-   docker run --entrypoint python3 -p 5000:5000  jbarlow83/ocrmypdf webservice.py
+   docker run --entrypoint python -p 5000:5000  jbarlow83/ocrmypdf webservice.py
+
+We omit the ``--rm`` parameter so that the container will not be
+automatically deleted when it exits.
 
 This will configure the machine to listen on port 5000. On Linux machines
 this is port 5000 of localhost. On macOS or Windows machines running

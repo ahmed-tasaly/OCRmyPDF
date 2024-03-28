@@ -10,8 +10,8 @@ import importlib
 import importlib.util
 import pkgutil
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import pluggy
 
@@ -33,7 +33,7 @@ class OcrmypdfPluginManager(pluggy.PluginManager):
     def __init__(
         self,
         *args,
-        plugins: list[str | Path],
+        plugins: Sequence[str | Path],
         builtins: bool = True,
         **kwargs,
     ):
@@ -100,10 +100,12 @@ class OcrmypdfPluginManager(pluggy.PluginManager):
             self.register(module)
 
 
-def get_plugin_manager(plugins: list[str | Path], builtins=True):
+def get_plugin_manager(
+    plugins: Sequence[str | Path] | None = None, builtins=True
+) -> OcrmypdfPluginManager:
     return OcrmypdfPluginManager(
         project_name='ocrmypdf',
-        plugins=plugins,
+        plugins=plugins if plugins is not None else [],
         builtins=builtins,
     )
 

@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: MPL-2.0
 """Built-in plugin to implement OCR using Tesseract."""
 
-
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 
@@ -14,6 +14,7 @@ from ocrmypdf import hookimpl
 from ocrmypdf._exec import tesseract
 from ocrmypdf._jobcontext import PageContext
 from ocrmypdf.cli import numeric, str_to_int
+from ocrmypdf.exceptions import BadArgsError, MissingDependencyError
 from ocrmypdf.helpers import clamp
 from ocrmypdf.imageops import calculate_downsample, downsample_image
 from ocrmypdf.pluginspec import OcrEngine
@@ -94,7 +95,8 @@ def add_options(parser):
     )
     tess.add_argument(
         '--tesseract-downsample-large-images',
-        action='store_true',
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
             "Downsample large images before OCR. Tesseract has an upper limit on the "
             "size images it will support. If this argument is given, OCRmyPDF will "
@@ -143,6 +145,12 @@ def check_options(options):
         need_version='4.1.1',  # Ubuntu 22.04 version (also 20.04)
         version_parser=tesseract.TesseractVersion,
     )
+    tess_version = tesseract.version()
+    if tess_version == tesseract.TesseractVersion('5.4.0'):
+        raise MissingDependencyError(
+            "Tesseract 5.4.0 is not supported due to regressions in this version. "
+            "Please upgrade to a newer or supported older version."
+        )
 
     # Decide on what renderer to use
     if options.pdf_renderer == 'auto':
@@ -162,6 +170,14 @@ def check_options(options):
         log.warning(
             "The --tesseract-pagesegmode argument you select will disable OCR. "
             "This may cause processing to fail."
+        )
+    DENIED_LANGUAGES = {'equ', 'osd'}
+    if DENIED_LANGUAGES & set(options.languages):
+        raise BadArgsError(
+            "The following languages for Tesseract's internal use and should not "
+            "be issued explicitly: "
+            f"{', '.join(DENIED_LANGUAGES & set(options.languages))}\n"
+            "Remove them from the -l/--language argument."
         )
 
 

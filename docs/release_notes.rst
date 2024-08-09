@@ -30,6 +30,88 @@ OCRmyPDF typically supports the three most recent Python versions.
 
 .. |OCRmyPDF PyPI| image:: https://img.shields.io/pypi/v/ocrmypdf.svg
 
+v16.4.3
+=======
+
+-  Work around pdfminer.six issue where a token on the buffer boundary is incorrectly
+   parsed as two tokens. :issue:`1361`
+-  New rules are applied to stencil masks and explicit masks when calculating the
+   optimal page DPI for rendering. :issue:`1362`
+-  Fixed attempts to use an incompatible jbig2.EXE provided by TeX Live. :issue:`1363`
+
+v16.4.2
+=======
+
+-  Fixed order of filenames passed to Ghostscript for PDF/A generation. :issue:`1359`
+-  Suppressed missing jbig2dec warning message. :issue:`1358`
+-  Fixed calculation of image size when soft mask dimensions don't match image
+   dimension. :issue:`1351`
+-  Several fixes to documentation. Thanks to users Iris and JoKalliauer
+   who contributed these changes.
+-  Fixed error on processing PDFs that are missing certain image metadata. :issue:`1315`
+
+v16.4.1
+=======
+
+-  Fixed calculation of image printed area (used in finding weighted DPI for OCR).
+   :issue:`1334`
+-  Fixed "NotImplementedError: not sure how to get colorspace" error
+   messages in logs which simply records a failure to optimize images with
+   print production colorspaces. :issue:`1315`
+
+v16.4.0
+=======
+
+-  Selecting the ``osd`` and ``equ`` pseudo-languages with ``-l/--language`` now
+   exits with an error when using Tesseract OCR, because these are not
+   regular Tesseract languages but implementation details implemented.
+   Using them can cause Tesseract to crash.
+-  The hOCR renderer is more tolerant of extra whitespace in input files.
+-  watcher.py now changes the output file extension to .pdf when the input is not
+   .pdf.
+-  Improved handling of PDFs that contain circularly referenced Form XObjects.
+   :issue:`1321`
+-  Fixed Alpine Docker image for ARM64, which was not building correctly.
+-  Docker images now use pikepdf 9.0.0.
+-  Prevent use of Tesseract OCR 5.4.0, a version with known regressions.
+-  Disabled progressbar for "Linearizing" when ``--no-progress-bar`` set.
+-  Fixed some tests that warn about missing JBIG2 decoding via pikepdf, by
+   installing the necessary libraries during tests.
+
+v16.3.1
+=======
+
+-  Fixed a test suite failure with Ghostscript 10.03.0+. :issue:`1316`
+-  Fixed an issue with the presentation of the "OCR" progress bar. :issue:`1313`
+
+v16.3.0
+=======
+
+-  Fixed progress bar not displaying for Ghostscript PDF/A conversion. :issue:`1313`
+-  Added progress bar for linearization. :issue:`1313`
+-  If `--rotate-pages-threshold` issued without `--rotate-pages` we now exit with
+   an error since the user likely intended to use `--rotate-pages`. :issue:`1309`
+-  If Tesseract hOCR gives an invalid line box, print an error message instead of
+   exiting with an error. :issue:`1312`
+
+v16.2.0
+=======
+
+-  Fixed issue 'NoneType' object has no attribute 'get' when optimizing certain PDFs.
+   :issue:`1293,1271`
+-  Switched formatting from black to ruff.
+-  Added support for sending sidecar output to io.BytesIO.
+-  Added support for converting HEIF/HEIC images (the native image of iPhones and
+   some other devices) to PDFs, when the appropriate pi-hief library is installed.
+   This library is marked as a dependency, but maintainers may opt out if needed.
+-  We now default to downsampling large images that would exceed Tesseract's internal
+   limits, but only if it cause processing to fail. Previously, this behavior only
+   occurred if specifically requested on command line. It can still be configured
+   and disabled. See the --tesseract command line options.
+-  Added Macports install instructions. Thanks @akierig.
+-  Improved logging output when an unexpected error occurs while trying to obtain
+   the version of a third party program.
+
 v16.1.2
 =======
 

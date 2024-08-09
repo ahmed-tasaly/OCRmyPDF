@@ -239,7 +239,13 @@ def _interpret_contents(contentstream: Object, initial_shorthand=UNIT_SQUARE):
                 # to do. Just pretend nothing happened, keep calm and carry on.
                 warn("PDF graphics stack underflowed - PDF may be malformed")
         elif operator == 'cm':
-            ctm = Matrix(operands) @ ctm
+            try:
+                ctm = Matrix(operands) @ ctm
+            except ValueError:
+                raise InputFileError(
+                    "PDF content stream is corrupt - this PDF is malformed. "
+                    "Use a PDF editor that is capable of visually inspecting the PDF."
+                )
         elif operator == 'Do':
             image_name = operands[0]
             settings = XobjectSettings(
@@ -363,8 +369,21 @@ class ImageInfo:
             pim = PdfImage(pdfimage)
         else:
             raise ValueError("Either pdfimage or inline must be set")
+
         self._width = pim.width
         self._height = pim.height
+        if (smask := pim.obj.get(Name.SMask, None)) is not None:
+            # SMask is pretty much an alpha channel, but in PDF it's possible
+            # for channel to have different dimensions than the image
+            # itself. Some PDF writers use this to create a grayscale stencil
+            # mask. For our purposes, the effective size is the size of the
+            # larger component (image or smask).
+            self._width = max(smask.get(Name.Width, 0), self._width)
+            self._height = max(smask.get(Name.Height, 0), self._height)
+        if (mask := pim.obj.get(Name.Mask, None)) is not None:
+            # If the image has a /Mask entry, it has an explicit mask.
+            self._width = max(mask.get(Name.Width, 0), self._width)
+            self._height = max(mask.get(Name.Height, 0), self._height)
 
         # If /ImageMask is true, then this image is a stencil mask
         # (Images that draw with this stencil mask will have a reference to
@@ -468,9 +487,18 @@ class ImageInfo:
     def renderable(self) -> bool:
         """Whether the image is renderable.
 
-        Some PDFs in the wild have invalid images that are not renderable.
+        Some PDFs in the wild have invalid images that are not renderable,
+        due to unusual dimensions.
+
+        Stencil masks are not also not renderable, since they are not
+        drawn, but rather they control how rendering happens.
         """
-        return self.dpi.is_finite and self.width >= 0 and self.height >= 0
+        return (
+            self.dpi.is_finite
+            and self.width >= 0
+            and self.height >= 0
+            and self.type_ != 'stencil'
+        )
 
     @property
     def dpi(self) -> Resolution:
@@ -485,7 +513,7 @@ class ImageInfo:
         """Physical area of the image in square inches."""
         if not self.renderable:
             return 0.0
-        return float(self.width * self.dpi.x * self.height * self.dpi.y)
+        return float((self.width / self.dpi.x) * (self.height / self.dpi.y))
 
     def __repr__(self):
         """Return a string representation of the image."""
@@ -567,7 +595,7 @@ def _find_form_xobject_images(pdf: Pdf, container: Object, contentsinfo: Content
     xobjs = resources[Name.XObject].as_dict()
     for xobj in xobjs:
         candidate = xobjs[xobj]
-        if candidate is None or candidate[Name.Subtype] != Name.Form:
+        if candidate is None or candidate.get(Name.Subtype) != Name.Form:
             continue
 
         form_xobject = candidate
@@ -1049,10 +1077,14 @@ class PageInfo:
 
         Returns None if there is no meaningful DPI for the page.
         """
-        image_dpis = [
-            image.dpi.to_scalar() for image in self._images if image.renderable
-        ]
-        image_areas = [image.printed_area for image in self._images if image.renderable]
+        image_dpis = []
+        image_areas = []
+        for image in self._images:
+            if not image.renderable:
+                continue
+            image_dpis.append(image.dpi.to_scalar())
+            image_areas.append(image.printed_area)
+
         total_drawn_area = sum(image_areas)
         if total_drawn_area == 0:
             return None
@@ -1065,7 +1097,6 @@ class PageInfo:
 
         arg_max_dpi = image_dpis.index(max_dpi)
         max_area_ratio = image_areas[arg_max_dpi] / total_drawn_area
-
         return PageResolutionProfile(
             weighted_dpi,
             max_dpi,

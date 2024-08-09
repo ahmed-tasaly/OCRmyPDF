@@ -3,7 +3,6 @@
 
 """Post-processing image optimization of OCR PDFs."""
 
-
 from __future__ import annotations
 
 import logging
@@ -29,6 +28,7 @@ from pikepdf import (
     Stream,
     UnsupportedImageTypeError,
 )
+from pikepdf.models.image import HifiPrintImageNotTranscodableError
 from PIL import Image
 
 from ocrmypdf._concurrent import Executor, SerialExecutor
@@ -90,6 +90,7 @@ def extract_image_filter(
         if (
             len(pim.filter_decodeparms) == 2
             and first_filtdp[0] == Name.FlateDecode
+            and first_filtdp[1] is not None
             and first_filtdp[1].get(Name.Predictor, 1) == 1
             and second_filtdp[0] == Name.DCTDecode
             and not second_filtdp[1]
@@ -200,7 +201,7 @@ def extract_image_generic(
             with imgname.open('wb') as f:
                 ext = pim.extract_to(stream=f)
             imgname.rename(imgname.with_suffix(ext))
-        except UnsupportedImageTypeError:
+        except (UnsupportedImageTypeError, HifiPrintImageNotTranscodableError):
             return None
         return XrefExt(xref, ext)
     elif (
@@ -256,6 +257,9 @@ def _find_image_xrefs_container(
     for _imname, image in dict(xobjs).items():
         if image.objgen[1] != 0:
             continue  # Ignore images in an incremental PDF
+        xref = Xref(image.objgen[0])
+        if xref in include_xrefs or xref in exclude_xrefs:
+            continue  # Already processed
         if Name.Subtype in image and image.Subtype == Name.Form:
             # Recurse into Form XObjects
             log.debug(f"Recursing into Form XObject {_imname} in page {pageno}")
@@ -269,7 +273,6 @@ def _find_image_xrefs_container(
                 depth + 1,
             )
             continue
-        xref = Xref(image.objgen[0])
         if Name.SMask in image:
             # Ignore soft masks
             smask_xref = Xref(image.SMask.objgen[0])

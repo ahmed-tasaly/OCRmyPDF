@@ -42,7 +42,7 @@ execute the image:
      - Architecture
      - Description
    * - ``jbarlow83/ocrmypdf-alpine``
-     - x86_64 only
+     - x86_64 and arm64
      - Recommended image, based on Alpine Linux.
    * - ``jbarlow83/ocrmypdf-ubuntu``
      - x86_64 and arm64
@@ -81,7 +81,7 @@ To start a Docker container (instance of the image):
 
 .. code-block:: bash
 
-   docker tag jbarlow83/ocrmypdf ocrmypdf
+   docker tag jbarlow83/ocrmypdf-alpine ocrmypdf
    docker run --rm -i ocrmypdf (... all other arguments here...) - -
 
 For convenience, create a shell alias to hide the Docker command. It is

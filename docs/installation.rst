@@ -23,7 +23,9 @@ These platforms have one-liner installs:
 +-------------------------------+-----------------------------------------+
 | Fedora                        | ``dnf install ocrmypdf tesseract-osd``  |
 +-------------------------------+-----------------------------------------+
-| macOS                         | ``brew install ocrmypdf``               |
+| macOS (Homebrew)              | ``brew install ocrmypdf``               |
++-------------------------------+-----------------------------------------+
+| macOS (MacPorts)              | ``port install ocrmypdf``               |
 +-------------------------------+-----------------------------------------+
 | LinuxBrew                     | ``brew install ocrmypdf``               |
 +-------------------------------+-----------------------------------------+
@@ -222,7 +224,7 @@ standard tooling needed to build packages, such as a compiler and binary tools.
 
 .. code-block:: bash
 
-   sudo pacman -S base-devel
+   sudo pacman -S --needed base-devel
 
 Now you are ready to install the OCRmyPDF package.
 
@@ -324,6 +326,22 @@ languages you can optionally install them all:
 .. code-block:: bash
 
     brew install tesseract-lang  # Optional: Install all language packs
+
+MacPorts
+--------
+
+.. image:: https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fports.macports.org%2Fapi%2Fv1%2Fports%2Focrmypdf%2F%3Fformat%3Djson&query=version&label=MacPorts
+   :alt: Macports Version Information
+   :target: https://ports.macports.org/port/ocrmypdf
+
+OCRmyPDF is includes in MacPorts:
+
+.. code-block:: bash
+
+    sudo port install ocrmypdf
+
+Note that while this will install tesseract you will need to install
+the appropriate tesseract `language ports <https://ports.macports.org/search/?selected_facets=categories_exact%3Atextproc&installed_file=&q=tesseract&name=on>`__. 
 
 Manual installation on macOS
 ----------------------------
@@ -663,7 +681,7 @@ To install all of the development and test requirements:
 .. code-block:: bash
 
     git clone -b main https://github.com/ocrmypdf/OCRmyPDF.git
-    python -m .venv
+    python -m venv .venv
     source .venv/bin/activate
     cd OCRmyPDF
     pip install -e .[test]

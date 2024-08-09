@@ -14,12 +14,12 @@ You should edit this script to meet your needs.
 
 from __future__ import annotations
 
+import filecmp
 import logging
-import sys
 import os
 import posixpath
 import shutil
-import filecmp
+import sys
 from pathlib import Path
 
 import ocrmypdf
@@ -27,7 +27,8 @@ import ocrmypdf
 # pylint: disable=logging-format-interpolation
 # pylint: disable=logging-not-lazy
 
-def filecompare(a,b):
+
+def filecompare(a, b):
     try:
         return filecmp.cmp(a, b, shallow=True)
     except FileNotFoundError:
@@ -69,7 +70,7 @@ for filename in start_dir.glob("**/*.pdf"):
             logging.info(f"Archiving document to {archive_filename}")
             try:
                 shutil.copy2(filename, posixpath.dirname(archive_filename))
-            except IOError as io_err:
+            except OSError:
                 os.makedirs(posixpath.dirname(archive_filename))
                 shutil.copy2(filename, posixpath.dirname(archive_filename))
         try:
@@ -82,7 +83,9 @@ for filename in start_dir.glob("**/*.pdf"):
         except ocrmypdf.exceptions.DigitalSignatureError:
             logging.info("Skipped document because it has a digital signature")
         except ocrmypdf.exceptions.TaggedPDFError:
-            logging.info("Skipped document because it does not need ocr as it is tagged")
-        except:
+            logging.info(
+                "Skipped document because it does not need ocr as it is tagged"
+            )
+        except Exception:
             logging.error("Unhandled error occured")
         logging.info("OCR complete")

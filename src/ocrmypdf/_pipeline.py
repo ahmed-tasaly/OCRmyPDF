@@ -41,10 +41,21 @@ from ocrmypdf.pdfa import generate_pdfa_ps
 from ocrmypdf.pdfinfo import Colorspace, Encoding, PageInfo, PdfInfo
 from ocrmypdf.pluginspec import OrientationConfidence
 
+try:
+    from pi_heif import register_heif_opener
+except ImportError:
+
+    def register_heif_opener():
+        pass
+
+
 T = TypeVar("T")
 log = logging.getLogger(__name__)
 
 VECTOR_PAGE_DPI = 400
+
+
+register_heif_opener()
 
 
 def triage_image_file(input_file: Path, output_file: Path, options) -> None:
@@ -131,7 +142,7 @@ def _pdf_guess_version(input_file: Path, search_window=1024) -> str:
     """
     with open(input_file, 'rb') as f:
         signature = f.read(search_window)
-    m = re.search(br'%PDF-(\d\.\d)', signature)
+    m = re.search(rb'%PDF-(\d\.\d)', signature)
     if m:
         return m.group(1).decode('ascii')
     return ''
@@ -464,7 +475,7 @@ def calculate_raster_dpi(page_context: PageContext):
     page_dpi = get_page_square_dpi(page_context, image_dpi)
     if dpi_profile and dpi_profile.average_to_max_dpi_ratio < 0.8:
         log.warning(
-            "Weight average image DPI is %0.1f, max DPI is %0.1f. "
+            "Weighted average image DPI is %0.1f, max DPI is %0.1f. "
             "The discrepancy may indicate a high detail region on this page, "
             "but could also indicate a problem with the input PDF file. "
             "Page image will be rendered at %0.1f DPI.",
@@ -767,7 +778,9 @@ def render_hocr_page(hocr: Path, page_context: PageContext) -> Path:
             font=Courier(),
         )
     HocrTransform(
-        hocr_filename=hocr, dpi=dpi.to_scalar(), **debug_kwargs  # square
+        hocr_filename=hocr,
+        dpi=dpi.to_scalar(),
+        **debug_kwargs,  # square
     ).to_pdf(
         out_filename=output_file,
         image_filename=None,

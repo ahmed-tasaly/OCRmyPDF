@@ -4,7 +4,6 @@
 
 """Implements the concurrent and page synchronous parts of the pipeline."""
 
-
 from __future__ import annotations
 
 import argparse
@@ -104,14 +103,14 @@ def exec_concurrent(context: PdfContext, executor: Executor) -> Sequence[str]:
         try:
             set_thread_pageno(result.pageno + 1)
             sidecars[result.pageno] = result.text
-            pbar.update()
+            pbar.update(0.5)
             ocrgraft.graft_page(
                 pageno=result.pageno,
                 image=result.pdf_page_from_image,
                 textpdf=result.ocr,
                 autorotate_correction=result.orientation_correction,
             )
-            pbar.update()
+            pbar.update(0.5)
         finally:
             set_thread_pageno(None)
 
@@ -119,10 +118,9 @@ def exec_concurrent(context: PdfContext, executor: Executor) -> Sequence[str]:
         use_threads=options.use_threads,
         max_workers=max_workers,
         progress_kwargs=dict(
-            total=(2 * len(context.pdfinfo)),
+            total=len(context.pdfinfo),
             desc='OCR' if options.tesseract_timeout > 0 else 'Image processing',
             unit='page',
-            unit_scale=0.5,
             disable=not options.progress_bar,
         ),
         worker_initializer=partial(worker_init, PIL.Image.MAX_IMAGE_PIXELS),
@@ -155,12 +153,13 @@ def _run_pipeline(
     options: argparse.Namespace,
     plugin_manager: OcrmypdfPluginManager,
 ) -> ExitCode:
-    with manage_work_folder(
-        work_folder=Path(mkdtemp(prefix="ocrmypdf.io.")),
-        retain=options.keep_temporary_files,
-        print_location=options.keep_temporary_files,
-    ) as work_folder, manage_debug_log_handler(
-        options=options, work_folder=work_folder
+    with (
+        manage_work_folder(
+            work_folder=Path(mkdtemp(prefix="ocrmypdf.io.")),
+            retain=options.keep_temporary_files,
+            print_location=options.keep_temporary_files,
+        ) as work_folder,
+        manage_debug_log_handler(options=options, work_folder=work_folder),
     ):
         executor = setup_pipeline(options, plugin_manager)
         check_requested_output_file(options)

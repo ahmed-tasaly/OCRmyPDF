@@ -12,12 +12,13 @@ readme = "README.md"
 license = { text = "MPL-2.0" }
 requires-python = ">=3.10"
 dependencies = [
-  "Pillow>=10.0.1",
   "deprecation>=2.1.0",
   "img2pdf>=0.5",
   "packaging>=20",
   "pdfminer.six>=20220319",
+  "pi-heif",                # Heif image format - maintainers: if this is removed, it will NOT break
   "pikepdf>=8.10.1",
+  "Pillow>=10.0.1",
   "pluggy>=1",
   "rich>=13",
 ]
@@ -60,7 +61,7 @@ test = [
   "types-Pillow",
   "types-humanfriendly",
 ]
-watcher = ["watchdog>=1.0.2", "typer[all]", "python-dotenv"]
+watcher = ["watchdog>=1.0.2", "typer-slim[standard]", "python-dotenv"]
 webservice = ["Flask>=2.0.1"]
 
 [project.scripts]
@@ -77,29 +78,6 @@ namespaces = false
 
 [tool.distutils.bdist_wheel]
 python-tag = "py310"
-
-[tool.black]
-line-length = 88
-target-version = ["py310", "py311", "py312"]
-skip-string-normalization = true
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.eggs
-  | \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | _build
-  | buck-out
-  | build
-  | dist
-  | docs
-  | misc
-  | \.egg-info
-)/
-'''
 
 [tool.coverage.run]
 branch = true
@@ -176,3 +154,6 @@ convention = "google"
 "tests/*.py" = ["D100", "D101", "D102", "D103", "D105"]
 "misc/*.py" = ["D103", "D101", "D102"]
 "src/ocrmypdf/builtin_plugins/*.py" = ["D103", "D102", "D105"]
+
+[tool.ruff.format]
+quote-style = "preserve"
